@@ -15,40 +15,98 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'BLE Sensor App',
       theme: ThemeData(primarySwatch: Colors.blue),
-      home: const BluetoothScreen(),
+      home: const MainScreen(),
     );
   }
 }
 
-class BluetoothScreen extends StatefulWidget {
-  const BluetoothScreen({Key? key}) : super(key: key);
+class MainScreen extends StatefulWidget {
+  const MainScreen({Key? key}) : super(key: key);
 
   @override
-  State<BluetoothScreen> createState() => _BluetoothScreenState();
+  State<MainScreen> createState() => _MainScreenState();
 }
 
-class _BluetoothScreenState extends State<BluetoothScreen> {
-  FlutterBluePlus flutterBlue = FlutterBluePlus();
-  List<ScanResult> scanResults = [];
+class _MainScreenState extends State<MainScreen> {
+  int _selectedIndex = 0;
   BluetoothDevice? connectedDevice;
-  List<BluetoothService> bluetoothServices = [];
-  bool _isScanning = false;
 
-  Map<String, double> sensorData = {
-    'AccX': 0, 'AccY': 0, 'AccZ': 0,
-    'AngX': 0, 'AngY': 0, 'AngZ': 0,
-  };
-  String direction = 'N/A';
-  String previousDirection = '';
-  String logMessage = '';
-  Stopwatch directionStopwatch = Stopwatch();
-  Timer? updateTimer;
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
+  void setConnectedDevice(BluetoothDevice device) {
+    setState(() {
+      connectedDevice = device;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: [
+          BluetoothScanPage(onDeviceConnected: setConnectedDevice),
+          if (connectedDevice != null)
+            PosturePage(device: connectedDevice!)
+          else
+            Center(child: Text('Please connect to a device first')),
+          LogPage(),
+        ],
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        items: const <BottomNavigationBarItem>[
+          BottomNavigationBarItem(
+            icon: Icon(Icons.bluetooth),
+            label: 'Scan',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.accessibility_new),
+            label: 'Posture',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.list),
+            label: 'Log',
+          ),
+        ],
+        currentIndex: _selectedIndex,
+        onTap: _onItemTapped,
+      ),
+    );
+  }
+}
+
+class BluetoothScanPage extends StatefulWidget {
+  final Function(BluetoothDevice) onDeviceConnected;
+
+  const BluetoothScanPage({Key? key, required this.onDeviceConnected}) : super(key: key);
+
+  @override
+  _BluetoothScanPageState createState() => _BluetoothScanPageState();
+}
+
+class _BluetoothScanPageState extends State<BluetoothScanPage> {
+  List<ScanResult> scanResults = [];
+  bool _isScanning = false;
+  bool _mounted = false;
+  StreamSubscription<List<ScanResult>>? _scanResultsSubscription;
 
   @override
   void initState() {
     super.initState();
+    _mounted = true;
     requestPermissions();
     initBluetooth();
+  }
+
+  @override
+  void dispose() {
+    _mounted = false;
+    _scanResultsSubscription?.cancel();
+    super.dispose();
   }
 
   void requestPermissions() async {
@@ -59,23 +117,33 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
 
   void initBluetooth() {
     FlutterBluePlus.isScanning.listen((isScanning) {
-      setState(() {
-        _isScanning = isScanning;
-      });
+      if (_mounted) {
+        setState(() {
+          _isScanning = isScanning;
+        });
+      }
     });
   }
 
   void scanForDevices() async {
     if (!_isScanning) {
-      setState(() {
-        scanResults.clear();
-      });
-      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
-      FlutterBluePlus.scanResults.listen((results) {
+      if (_mounted) {
         setState(() {
-          scanResults = results;
+          scanResults.clear();
         });
-      });
+      }
+      try {
+        await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
+        _scanResultsSubscription = FlutterBluePlus.scanResults.listen((results) {
+          if (_mounted) {
+            setState(() {
+              scanResults = results;
+            });
+          }
+        });
+      } catch (e) {
+        print('Error starting scan: $e');
+      }
     } else {
       await FlutterBluePlus.stopScan();
     }
@@ -85,29 +153,100 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
     await FlutterBluePlus.stopScan();
     try {
       await result.device.connect();
-      setState(() {
-        connectedDevice = result.device;
-      });
-      discoverServices(result.device);
+      widget.onDeviceConnected(result.device);
+      // 연결 성공 메시지 표시
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Connected to ${result.device.name}')),
+      );
     } catch (e) {
       print('Failed to connect: $e');
+      // 연결 실패 메시지 표시
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to connect: ${e.toString()}')),
+      );
     }
   }
 
-  void discoverServices(BluetoothDevice device) async {
-    List<BluetoothService> services = await device.discoverServices();
-    setState(() {
-      bluetoothServices = services;
-    });
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Bluetooth Scan'),
+        actions: [
+          IconButton(
+            icon: Icon(_isScanning ? Icons.stop : Icons.search),
+            onPressed: scanForDevices,
+          ),
+        ],
+      ),
+      body: ListView.builder(
+        itemCount: scanResults.length,
+        itemBuilder: (context, index) {
+          final result = scanResults[index];
+          return ListTile(
+            title: Text(result.device.name.isNotEmpty
+                ? result.device.name
+                : 'Unknown Device'),
+            subtitle: Text(result.device.id.id),
+            onTap: () => connectToDevice(result),
+          );
+        },
+      ),
+    );
+  }
+}
 
-    for (BluetoothService service in services) {
+class PosturePage extends StatefulWidget {
+  final BluetoothDevice device;
+  const PosturePage({Key? key, required this.device}) : super(key: key);
+  @override
+  _PosturePageState createState() => _PosturePageState();
+}
+
+class _PosturePageState extends State<PosturePage> {
+  List<BluetoothService> bluetoothServices = [];
+  StreamSubscription<List<int>>? dataSubscription;
+
+  Map<String, double> sensorData = {
+    'AccX': 0, 'AccY': 0, 'AccZ': 0,
+    'AngX': 0, 'AngY': 0, 'AngZ': 0,
+  };
+  String direction = 'N/A';
+  String previousDirection = '';
+  String logMessage = '';
+  Stopwatch directionStopwatch = Stopwatch();
+
+  @override
+  void initState() {
+    super.initState();
+    startWorkingWithDevice(widget.device);
+  }
+
+  void startWorkingWithDevice(BluetoothDevice device) async {
+    try {
+      await device.connect();
+      discoverServices();
+    } catch (e) {
+      print('Failed to connect: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to connect: ${e.toString()}')),
+      );
+    }
+  }
+
+  void discoverServices() async {
+    bluetoothServices = await widget.device.discoverServices();
+    for (var service in bluetoothServices) {
       if (service.uuid.toString() == '0000ffe5-0000-1000-8000-00805f9a34fb') {
-        for (BluetoothCharacteristic characteristic in service.characteristics) {
+        for (var characteristic in service.characteristics) {
           if (characteristic.uuid.toString() == '0000ffe4-0000-1000-8000-00805f9a34fb') {
             await characteristic.setNotifyValue(true);
-            characteristic.value.listen((value) {
-              processData(value);
+            dataSubscription = characteristic.value.listen((value) {
+              if (value.isNotEmpty) {
+                processData(value);
+              }
             });
+            break;
           }
         }
       }
@@ -161,29 +300,22 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
     return '${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds';
   }
 
-  Widget deviceList() {
-    return ListView.builder(
-      itemCount: scanResults.length,
-      itemBuilder: (context, index) {
-        final result = scanResults[index];
-        return ListTile(
-          title: Text(result.device.name.isNotEmpty
-              ? result.device.name
-              : 'Unknown Device'),
-          subtitle: Text(result.device.id.id),
-          onTap: () => connectToDevice(result),
-        );
-      },
-    );
-  }
-
-  Widget connectedDeviceView() {
-    return Column(
-      children: [
-        Text('Connected to ${connectedDevice!.name}'),
-        Expanded(
-          child: ListView(
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Posture Detection'),
+      ),
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Text('Connected Device', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text('Name: ${widget.device.name}'),
+              Text('ID: ${widget.device.id}'),
+              SizedBox(height: 20),
               Text('Sensor Data', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ...sensorData.entries.map((entry) =>
                   Text('${entry.key}: ${entry.value.toStringAsFixed(3)}')
@@ -200,77 +332,6 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
               SizedBox(height: 20),
               Text('Log', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               Text(logMessage),
-              SizedBox(height: 20),
-              Text('Services', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              ...bluetoothServices.map((service) {
-                return ExpansionTile(
-                  title: Text('Service: ${service.uuid}'),
-                  children: service.characteristics.map((characteristic) {
-                    return ListTile(
-                      title: Text('Characteristic: ${characteristic.uuid}'),
-                      subtitle: Text('Properties: ${characteristic.properties}'),
-                    );
-                  }).toList(),
-                );
-              }).toList(),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('BLE Sensor App'),
-        actions: [
-          IconButton(
-            icon: Icon(_isScanning ? Icons.stop : Icons.search),
-            onPressed: scanForDevices,
-          ),
-        ],
-      ),
-      body: connectedDevice == null ? deviceList() : connectedDeviceView(),
-      bottomNavigationBar: BottomAppBar(
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              ElevatedButton(
-                onPressed: scanForDevices,
-                child: Text('Start'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  if (connectedDevice != null) {
-                    connectedDevice!.disconnect();
-                    setState(() {
-                      connectedDevice = null;
-                      bluetoothServices.clear();
-                    });
-                  }
-                },
-                child: Text('Stop'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  if (connectedDevice != null) {
-                    connectedDevice!.disconnect();
-                  }
-                  setState(() {
-                    connectedDevice = null;
-                    bluetoothServices.clear();
-                    sensorData = Map.fromIterables(sensorData.keys, List.filled(sensorData.length, 0.0));
-                    direction = 'N/A';
-                    logMessage = '';
-                    directionStopwatch.reset();
-                  });
-                },
-                child: Text('Shutdown'),
-              ),
             ],
           ),
         ),
@@ -280,10 +341,23 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
 
   @override
   void dispose() {
-    updateTimer?.cancel();
-    if (connectedDevice != null) {
-      connectedDevice!.disconnect();
-    }
+    dataSubscription?.cancel();
+    widget.device.disconnect();
+    directionStopwatch.stop();
     super.dispose();
+  }
+}
+
+class LogPage extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Log Records'),
+      ),
+      body: Center(
+        child: Text('Log records will be displayed here'),
+      ),
+    );
   }
 }
