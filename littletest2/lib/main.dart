@@ -37,7 +37,7 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
-  void setConnectedDevice(BluetoothDevice device) {
+  void setConnectedDevice(BluetoothDevice? device) {
     setState(() {
       connectedDevice = device;
     });
@@ -49,7 +49,10 @@ class _MainScreenState extends State<MainScreen> {
       body: IndexedStack(
         index: _selectedIndex,
         children: [
-          BluetoothScanPage(onDeviceConnected: setConnectedDevice),
+          BluetoothScanPage(
+            onDeviceConnected: setConnectedDevice,
+            connectedDevice: connectedDevice,
+          ),
           if (connectedDevice != null)
             PosturePage(device: connectedDevice!)
           else
@@ -80,9 +83,14 @@ class _MainScreenState extends State<MainScreen> {
 }
 
 class BluetoothScanPage extends StatefulWidget {
-  final Function(BluetoothDevice) onDeviceConnected;
+  final Function(BluetoothDevice?) onDeviceConnected;
+  final BluetoothDevice? connectedDevice;
 
-  const BluetoothScanPage({Key? key, required this.onDeviceConnected}) : super(key: key);
+  const BluetoothScanPage({
+    Key? key,
+    required this.onDeviceConnected,
+    required this.connectedDevice,
+  }) : super(key: key);
 
   @override
   _BluetoothScanPageState createState() => _BluetoothScanPageState();
@@ -93,6 +101,8 @@ class _BluetoothScanPageState extends State<BluetoothScanPage> {
   bool _isScanning = false;
   bool _mounted = false;
   StreamSubscription<List<ScanResult>>? _scanResultsSubscription;
+  DateTime? _connectionStartTime;
+  Timer? _connectionTimer;
 
   @override
   void initState() {
@@ -100,12 +110,17 @@ class _BluetoothScanPageState extends State<BluetoothScanPage> {
     _mounted = true;
     requestPermissions();
     initBluetooth();
+    if (widget.connectedDevice != null) {
+      _connectionStartTime = DateTime.now();
+      _startConnectionTimer();
+    }
   }
 
   @override
   void dispose() {
     _mounted = false;
     _scanResultsSubscription?.cancel();
+    _connectionTimer?.cancel();
     super.dispose();
   }
 
@@ -154,17 +169,53 @@ class _BluetoothScanPageState extends State<BluetoothScanPage> {
     try {
       await result.device.connect();
       widget.onDeviceConnected(result.device);
-      // 연결 성공 메시지 표시
+      setState(() {
+        _connectionStartTime = DateTime.now();
+      });
+      _startConnectionTimer();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Connected to ${result.device.name}')),
       );
     } catch (e) {
       print('Failed to connect: $e');
-      // 연결 실패 메시지 표시
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to connect: ${e.toString()}')),
       );
     }
+  }
+
+  void disconnectDevice() async {
+    try {
+      await widget.connectedDevice?.disconnect();
+      widget.onDeviceConnected(null);
+      setState(() {
+        _connectionStartTime = null;
+      });
+      _connectionTimer?.cancel();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Disconnected from ${widget.connectedDevice?.name}')),
+      );
+    } catch (e) {
+      print('Failed to disconnect: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to disconnect: ${e.toString()}')),
+      );
+    }
+  }
+
+  void _startConnectionTimer() {
+    _connectionTimer = Timer.periodic(Duration(seconds: 1), (timer) {
+      if (_mounted) {
+        setState(() {});
+      }
+    });
+  }
+
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
+    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
+    return '${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds';
   }
 
   @override
@@ -179,29 +230,56 @@ class _BluetoothScanPageState extends State<BluetoothScanPage> {
           ),
         ],
       ),
-      body: ListView.builder(
-        itemCount: scanResults.length,
-        itemBuilder: (context, index) {
-          final result = scanResults[index];
-          return ListTile(
-            title: Text(result.device.name.isNotEmpty
-                ? result.device.name
-                : 'Unknown Device'),
-            subtitle: Text(result.device.id.id),
-            onTap: () => connectToDevice(result),
-          );
-        },
+      body: Column(
+        children: [
+          if (widget.connectedDevice != null)
+            Card(
+              margin: EdgeInsets.all(8),
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Connected Device', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    Text('Name: ${widget.connectedDevice!.name}'),
+                    Text('ID: ${widget.connectedDevice!.id}'),
+                    if (_connectionStartTime != null)
+                      Text('Connection Duration: ${_formatDuration(DateTime.now().difference(_connectionStartTime!))}'),
+                    ElevatedButton(
+                      onPressed: disconnectDevice,
+                      child: Text('Disconnect'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          Expanded(
+            child: ListView.builder(
+              itemCount: scanResults.length,
+              itemBuilder: (context, index) {
+                final result = scanResults[index];
+                return ListTile(
+                  title: Text(result.device.name.isNotEmpty
+                      ? result.device.name
+                      : 'Unknown Device'),
+                  subtitle: Text(result.device.id.id),
+                  onTap: () => connectToDevice(result),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class PosturePage extends StatefulWidget {
+  class PosturePage extends StatefulWidget {
   final BluetoothDevice device;
   const PosturePage({Key? key, required this.device}) : super(key: key);
   @override
   _PosturePageState createState() => _PosturePageState();
-}
+  }
 
 class _PosturePageState extends State<PosturePage> {
   List<BluetoothService> bluetoothServices = [];
