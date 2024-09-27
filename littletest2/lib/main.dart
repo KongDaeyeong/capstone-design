@@ -2,9 +2,65 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:provider/provider.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-void main() {
-  runApp(const MyApp());
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+FlutterLocalNotificationsPlugin();
+
+class PostureLogEntry {
+  final DateTime timestamp;
+  final String fromDirection;
+  final String toDirection;
+  final Duration duration;
+
+  PostureLogEntry({
+    required this.timestamp,
+    required this.fromDirection,
+    required this.toDirection,
+    required this.duration,
+  });
+}
+
+class PostureLogManager extends ChangeNotifier {
+  List<PostureLogEntry> _logs = [];
+
+  List<PostureLogEntry> get logs => List.unmodifiable(_logs);
+
+  void addLog(PostureLogEntry entry) {
+    _logs.add(entry);
+    notifyListeners();
+  }
+
+  void clearLogs() {
+    _logs.clear();
+    notifyListeners();
+  }
+}
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  const AndroidInitializationSettings initializationSettingsAndroid =
+  AndroidInitializationSettings('@mipmap/ic_launcher');
+
+  final DarwinInitializationSettings initializationSettingsIOS =
+  DarwinInitializationSettings();
+
+
+  final InitializationSettings initializationSettings = InitializationSettings(
+    android: initializationSettingsAndroid,
+    iOS: initializationSettingsIOS,
+  );
+
+  await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+
+  runApp(
+    ChangeNotifierProvider(
+      create: (context) => PostureLogManager(),
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -49,10 +105,8 @@ class _MainScreenState extends State<MainScreen> {
       body: IndexedStack(
         index: _selectedIndex,
         children: [
-          BluetoothScanPage(
-            onDeviceConnected: setConnectedDevice,
-            connectedDevice: connectedDevice,
-          ),
+          BluetoothScanPage(onDeviceConnected: setConnectedDevice,
+            connectedDevice: connectedDevice,),
           if (connectedDevice != null)
             PosturePage(device: connectedDevice!)
           else
@@ -86,11 +140,8 @@ class BluetoothScanPage extends StatefulWidget {
   final Function(BluetoothDevice?) onDeviceConnected;
   final BluetoothDevice? connectedDevice;
 
-  const BluetoothScanPage({
-    Key? key,
-    required this.onDeviceConnected,
-    required this.connectedDevice,
-  }) : super(key: key);
+  const BluetoothScanPage({Key? key, required this.onDeviceConnected,
+    required this.connectedDevice,}) : super(key: key);
 
   @override
   _BluetoothScanPageState createState() => _BluetoothScanPageState();
@@ -274,12 +325,12 @@ class _BluetoothScanPageState extends State<BluetoothScanPage> {
   }
 }
 
-  class PosturePage extends StatefulWidget {
+class PosturePage extends StatefulWidget {
   final BluetoothDevice device;
   const PosturePage({Key? key, required this.device}) : super(key: key);
   @override
   _PosturePageState createState() => _PosturePageState();
-  }
+}
 
 class _PosturePageState extends State<PosturePage> {
   List<BluetoothService> bluetoothServices = [];
@@ -289,16 +340,65 @@ class _PosturePageState extends State<PosturePage> {
     'AccX': 0, 'AccY': 0, 'AccZ': 0,
     'AngX': 0, 'AngY': 0, 'AngZ': 0,
   };
+
+  String potentialNewDirection = '';
+  Stopwatch potentialDirectionStopwatch = Stopwatch();
   String direction = 'N/A';
   String previousDirection = '';
   String logMessage = '';
   Stopwatch directionStopwatch = Stopwatch();
 
+  bool showAlert = false;
+
   @override
   void initState() {
     super.initState();
     startWorkingWithDevice(widget.device);
+    Timer.periodic(Duration(seconds: 1), (timer) {
+      checkPostureDuration();
+    });
   }
+
+  void checkPostureDuration() {
+    if (directionStopwatch.elapsed >= Duration(seconds: 10)) {
+      showNotification();
+      setState(() {
+        showAlert = true;
+      });
+    } else {
+      setState(() {
+        showAlert = false;
+      });
+    }
+  }
+
+  Future<void> showNotification() async {
+    const AndroidNotificationDetails androidPlatformChannelSpecifics =
+    AndroidNotificationDetails(
+      'posture_channel_id',
+      'Posture Notifications',
+      importance: Importance.max,
+      priority: Priority.high,
+      ticker: 'ticker',
+    );
+
+    const DarwinNotificationDetails iOSPlatformChannelSpecifics =
+    DarwinNotificationDetails();
+
+    const NotificationDetails platformChannelSpecifics = NotificationDetails(
+      android: androidPlatformChannelSpecifics,
+      iOS: iOSPlatformChannelSpecifics,
+    );
+
+    await flutterLocalNotificationsPlugin.show(
+      0,
+      '자세 변경 알림',
+      '자세를 바꿀 시간입니다!',
+      platformChannelSpecifics,
+      payload: 'posture_notification',
+    );
+  }
+
 
   void startWorkingWithDevice(BluetoothDevice device) async {
     try {
@@ -341,14 +441,7 @@ class _PosturePageState extends State<PosturePage> {
         sensorData['AngY'] = getSignedInt16(data[17] << 8 | data[16]) / 32768 * 180;
         sensorData['AngZ'] = getSignedInt16(data[19] << 8 | data[18]) / 32768 * 180;
 
-        direction = classifyDirection();
-
-        if (direction != previousDirection) {
-          logMessage = 'Direction changed from $previousDirection to $direction';
-          previousDirection = direction;
-          directionStopwatch.reset();
-          directionStopwatch.start();
-        }
+        updateDirection(classifyDirection());
       });
     }
   }
@@ -371,11 +464,37 @@ class _PosturePageState extends State<PosturePage> {
     return 'neutral';
   }
 
-  String formatDuration(Duration duration) {
-    String twoDigits(int n) => n.toString().padLeft(2, '0');
-    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
-    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
-    return '${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds';
+  void updateDirection(String newDirection) {
+    if (newDirection != direction) {
+      if (newDirection != potentialNewDirection) {
+        // Reset the stopwatch if a new potential direction is detected
+        potentialNewDirection = newDirection;
+        potentialDirectionStopwatch.reset();
+        potentialDirectionStopwatch.start();
+      } else if (potentialDirectionStopwatch.elapsed >= Duration(seconds: 5)) {
+        // If the potential direction has been maintained for 5 seconds, update the direction
+        final logManager = Provider.of<PostureLogManager>(context, listen: false);
+        logManager.addLog(PostureLogEntry(
+          timestamp: DateTime.now(),
+          fromDirection: direction,
+          toDirection: newDirection,
+          duration: directionStopwatch.elapsed,
+        ));
+
+        setState(() {
+          logMessage = 'Direction changed from $direction to $newDirection';
+          direction = newDirection;
+          directionStopwatch.reset();
+          directionStopwatch.start();
+          potentialDirectionStopwatch.reset();
+          showAlert = false;
+        });
+      }
+    } else {
+      // Reset potential direction if current direction is detected again
+      potentialNewDirection = '';
+      potentialDirectionStopwatch.reset();
+    }
   }
 
   @override
@@ -401,15 +520,32 @@ class _PosturePageState extends State<PosturePage> {
               SizedBox(height: 20),
               Text('Direction Info', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               Text('Current Direction: $direction'),
+              Text('Potential New Direction: $potentialNewDirection'),
               StreamBuilder(
                 stream: Stream.periodic(Duration(seconds: 1)),
                 builder: (context, snapshot) {
-                  return Text('Duration: ${formatDuration(directionStopwatch.elapsed)}');
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Current Direction Duration: ${formatDuration(directionStopwatch.elapsed)}'),
+                      Text('Potential Direction Duration: ${formatDuration(potentialDirectionStopwatch.elapsed)}'),
+                    ],
+                  );
                 },
               ),
               SizedBox(height: 20),
               Text('Log', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               Text(logMessage),
+              SizedBox(height: 20),
+              if (showAlert)
+                Container(
+                  padding: EdgeInsets.all(16),
+                  color: Colors.yellow,
+                  child: Text(
+                    '자세를 바꿀 시간입니다!',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
             ],
           ),
         ),
@@ -432,10 +568,37 @@ class LogPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Log Records'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.delete),
+            onPressed: () {
+              Provider.of<PostureLogManager>(context, listen: false).clearLogs();
+            },
+          ),
+        ],
       ),
-      body: Center(
-        child: Text('Log records will be displayed here'),
+      body: Consumer<PostureLogManager>(
+        builder: (context, logManager, child) {
+          return ListView.builder(
+            itemCount: logManager.logs.length,
+            itemBuilder: (context, index) {
+              final log = logManager.logs[index];
+              return ListTile(
+                title: Text('${log.fromDirection} → ${log.toDirection}'),
+                subtitle: Text('Duration: ${formatDuration(log.duration)}'),
+                trailing: Text(log.timestamp.toString()),
+              );
+            },
+          );
+        },
       ),
     );
   }
+}
+
+String formatDuration(Duration duration) {
+  String twoDigits(int n) => n.toString().padLeft(2, '0');
+  String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
+  String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
+  return '${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds';
 }
