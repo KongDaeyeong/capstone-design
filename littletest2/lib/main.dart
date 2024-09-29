@@ -5,6 +5,77 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+// DB와 캘린더 기능 추가..
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart' as path_package;
+import 'package:table_calendar/table_calendar.dart';
+import 'package:intl/intl.dart';
+
+// DB 관련 코드
+class DatabaseHelper {
+  static final DatabaseHelper instance = DatabaseHelper._init();
+  static Database? _database;
+
+  DatabaseHelper._init();
+
+  Future<Database> get database async {
+    if (_database != null) return _database!;
+    _database = await _initDB('posture_logs.db');
+    return _database!;
+  }
+
+  Future<Database> _initDB(String filePath) async {
+    final dbPath = await getDatabasesPath();
+    final path = path_package.join(dbPath, filePath);
+
+    return await openDatabase(path, version: 1, onCreate: _createDB);
+  }
+
+  Future<void> _createDB(Database db, int version) async {
+    await db.execute('''
+      CREATE TABLE posture_logs(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT,
+        fromDirection TEXT,
+        toDirection TEXT,
+        duration INTEGER
+      )
+    ''');
+  }
+
+  Future<int> insertLog(PostureLogEntry log) async {
+    final db = await database;
+    return await db.insert('posture_logs', {
+      'timestamp': log.timestamp.toIso8601String(),
+      'fromDirection': log.fromDirection,
+      'toDirection': log.toDirection,
+      'duration': log.duration.inSeconds,
+    });
+  }
+
+  Future<List<PostureLogEntry>> getLogsByDate(DateTime date) async {
+    final db = await database;
+    final startOfDay = DateTime(date.year, date.month, date.day);
+    final endOfDay = startOfDay.add(Duration(days: 1));
+
+    final maps = await db.query(
+      'posture_logs',
+      where: 'timestamp BETWEEN ? AND ?',
+      whereArgs: [startOfDay.toIso8601String(), endOfDay.toIso8601String()],
+      orderBy: 'timestamp DESC',
+    );
+
+    return List.generate(maps.length, (i) {
+      return PostureLogEntry(
+        timestamp: DateTime.parse(maps[i]['timestamp'] as String),
+        fromDirection: maps[i]['fromDirection'] as String,
+        toDirection: maps[i]['toDirection'] as String,
+        duration: Duration(seconds: maps[i]['duration'] as int),
+      );
+    });
+  }
+}
+
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
 FlutterLocalNotificationsPlugin();
 
@@ -24,11 +95,19 @@ class PostureLogEntry {
 
 class PostureLogManager extends ChangeNotifier {
   List<PostureLogEntry> _logs = [];
+  // DB
+  final DatabaseHelper _dbHelper = DatabaseHelper.instance;
 
   List<PostureLogEntry> get logs => List.unmodifiable(_logs);
 
-  void addLog(PostureLogEntry entry) {
+  Future<void> addLog(PostureLogEntry entry) async {
+    await _dbHelper.insertLog(entry);
     _logs.add(entry);
+    notifyListeners();
+  }
+
+  Future<void> loadLogsByDate(DateTime date) async {
+    _logs = await _dbHelper.getLogsByDate(date);
     notifyListeners();
   }
 
@@ -40,6 +119,7 @@ class PostureLogManager extends ChangeNotifier {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await DatabaseHelper.instance.database;
 
   const AndroidInitializationSettings initializationSettingsAndroid =
   AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -56,8 +136,10 @@ void main() async {
   await flutterLocalNotificationsPlugin.initialize(initializationSettings);
 
   runApp(
-    ChangeNotifierProvider(
-      create: (context) => PostureLogManager(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (context) => PostureLogManager()),
+      ],
       child: const MyApp(),
     ),
   );
@@ -140,8 +222,7 @@ class BluetoothScanPage extends StatefulWidget {
   final Function(BluetoothDevice?) onDeviceConnected;
   final BluetoothDevice? connectedDevice;
 
-  const BluetoothScanPage({Key? key, required this.onDeviceConnected,
-    required this.connectedDevice,}) : super(key: key);
+  const BluetoothScanPage({Key? key, required this.onDeviceConnected, required this.connectedDevice}) : super(key: key);
 
   @override
   _BluetoothScanPageState createState() => _BluetoothScanPageState();
@@ -415,7 +496,7 @@ class _PosturePageState extends State<PosturePage> {
       discoverServices();
     } catch (e) {
       print('Failed to connect: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context as BuildContext).showSnackBar(
         SnackBar(content: Text('Failed to connect: ${e.toString()}')),
       );
     }
@@ -511,7 +592,7 @@ class _PosturePageState extends State<PosturePage> {
         potentialDirectionStopwatch.start();
       } else if (potentialDirectionStopwatch.elapsed >= Duration(seconds: 5)) {
         // If the potential direction has been maintained for 5 seconds, update the direction
-        final logManager = Provider.of<PostureLogManager>(context, listen: false);
+        final logManager = Provider.of<PostureLogManager>(context as BuildContext, listen: false);
         logManager.addLog(PostureLogEntry(
           timestamp: DateTime.now(),
           fromDirection: currentDirection,
@@ -573,7 +654,7 @@ class _PosturePageState extends State<PosturePage> {
           children: [
             Text(
               'Direction Info',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              style: Theme.of(context as BuildContext).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
             ),
             SizedBox(height: 12),
             _buildInfoRow('Current Direction', currentDirection),
@@ -620,7 +701,7 @@ class _PosturePageState extends State<PosturePage> {
           children: [
             Text(
               'Log',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              style: Theme.of(context as BuildContext).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
             ),
             SizedBox(height: 12),
             Text(
@@ -664,36 +745,82 @@ class _PosturePageState extends State<PosturePage> {
   }
 }
 
-class LogPage extends StatelessWidget {
+class LogPage extends StatefulWidget {
+  @override
+  _LogPageState createState() => _LogPageState();
+}
+
+class _LogPageState extends State<LogPage> {
+  bool _showCalendar = false;
+  DateTime _selectedDate = DateTime.now();
+  CalendarFormat _calendarFormat = CalendarFormat.month;
+
   @override
   Widget build(BuildContext context) {
+    // 여기서 로그를 로드합니다
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<PostureLogManager>(context, listen: false).loadLogsByDate(_selectedDate);
+    });
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Log Records'),
         actions: [
           IconButton(
-            icon: Icon(Icons.delete),
+            icon: Icon(_showCalendar ? Icons.list : Icons.calendar_today),
             onPressed: () {
-              Provider.of<PostureLogManager>(context, listen: false).clearLogs();
+              setState(() {
+                _showCalendar = !_showCalendar;
+              });
             },
           ),
         ],
       ),
-      body: Consumer<PostureLogManager>(
-        builder: (context, logManager, child) {
-          return ListView.builder(
-            itemCount: logManager.logs.length,
-            itemBuilder: (context, index) {
-              final log = logManager.logs[index];
-              return ListTile(
-                title: Text('${log.fromDirection} → ${log.toDirection}'),
-                subtitle: Text('Duration: ${formatDuration(log.duration)}'),
-                trailing: Text(log.timestamp.toString()),
-              );
-            },
-          );
-        },
+      body: Column(
+        children: [
+          if (_showCalendar) _buildCalendar(),
+          Expanded(
+            child: Consumer<PostureLogManager>(
+              builder: (context, logManager, child) {
+                return ListView.builder(
+                  itemCount: logManager.logs.length,
+                  itemBuilder: (context, index) {
+                    final log = logManager.logs[index];
+                    return ListTile(
+                      title: Text('${log.fromDirection} → ${log.toDirection}'),
+                      subtitle: Text('Duration: ${formatDuration(log.duration)}'),
+                      trailing: Text(DateFormat('HH:mm:ss').format(log.timestamp)),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
+    );
+  }
+
+  Widget _buildCalendar() {
+    return TableCalendar(
+      firstDay: DateTime.utc(2023, 1, 1),
+      lastDay: DateTime.utc(2030, 12, 31),
+      focusedDay: _selectedDate,
+      calendarFormat: _calendarFormat,
+      selectedDayPredicate: (day) {
+        return isSameDay(_selectedDate, day);
+      },
+      onDaySelected: (selectedDay, focusedDay) {
+        setState(() {
+          _selectedDate = selectedDay;
+          Provider.of<PostureLogManager>(context as BuildContext, listen: false).loadLogsByDate(_selectedDate);
+        });
+      },
+      onFormatChanged: (format) {
+        setState(() {
+          _calendarFormat = format;
+        });
+      },
     );
   }
 }
