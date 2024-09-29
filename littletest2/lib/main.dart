@@ -333,22 +333,31 @@ class PosturePage extends StatefulWidget {
 }
 
 class _PosturePageState extends State<PosturePage> {
-  List<BluetoothService> bluetoothServices = [];
   StreamSubscription<List<int>>? dataSubscription;
 
   Map<String, double> sensorData = {
-    'AccX': 0, 'AccY': 0, 'AccZ': 0,
-    'AngX': 0, 'AngY': 0, 'AngZ': 0,
+    'AccX': 0,
+    'AccZ': 0,
   };
 
+  // String potentialNewDirection = '';
+  // Stopwatch potentialDirectionStopwatch = Stopwatch();
+  // String direction = 'Initializing...';
+  // String previousDirection = '';
+  // String logMessage = '';
+  // Stopwatch directionStopwatch = Stopwatch();
+  //
+  // bool showAlert = false;
+  // bool isInitialized = false;
+
+  String currentDirection = 'Initializing...';
   String potentialNewDirection = '';
   Stopwatch potentialDirectionStopwatch = Stopwatch();
-  String direction = 'N/A';
-  String previousDirection = '';
-  String logMessage = '';
-  Stopwatch directionStopwatch = Stopwatch();
+  Stopwatch currentDirectionStopwatch = Stopwatch();
 
+  String logMessage = '';
   bool showAlert = false;
+  bool isInitialized = false;
 
   @override
   void initState() {
@@ -360,7 +369,7 @@ class _PosturePageState extends State<PosturePage> {
   }
 
   void checkPostureDuration() {
-    if (directionStopwatch.elapsed >= Duration(seconds: 10)) {
+    if (currentDirectionStopwatch.elapsed >= Duration(seconds: 10)) {
       showNotification();
       setState(() {
         showAlert = true;
@@ -413,8 +422,8 @@ class _PosturePageState extends State<PosturePage> {
   }
 
   void discoverServices() async {
-    bluetoothServices = await widget.device.discoverServices();
-    for (var service in bluetoothServices) {
+    List<BluetoothService> services = await widget.device.discoverServices();
+    for (var service in services) {
       if (service.uuid.toString() == '0000ffe5-0000-1000-8000-00805f9a34fb') {
         for (var characteristic in service.characteristics) {
           if (characteristic.uuid.toString() == '0000ffe4-0000-1000-8000-00805f9a34fb') {
@@ -431,17 +440,46 @@ class _PosturePageState extends State<PosturePage> {
     }
   }
 
+  // void processData(List<int> data) {
+  //   if (data.length >= 20 && data[1] == 0x61) {
+  //     setState(() {
+  //       sensorData['AccX'] = getSignedInt16(data[3] << 8 | data[2]) / 32768 * 16;
+  //       sensorData['AccZ'] = getSignedInt16(data[7] << 8 | data[6]) / 32768 * 16;
+  //
+  //       String newDirection = classifyDirection();
+  //
+  //       if (!isInitialized) {
+  //         // Set initial direction
+  //         direction = newDirection;
+  //         isInitialized = true;
+  //         directionStopwatch.start();
+  //         logMessage = 'Initial direction: $direction';
+  //       } else {
+  //         updateDirection(newDirection);
+  //       }
+  //     });
+  //   }
+  // }
+
   void processData(List<int> data) {
     if (data.length >= 20 && data[1] == 0x61) {
       setState(() {
         sensorData['AccX'] = getSignedInt16(data[3] << 8 | data[2]) / 32768 * 16;
-        sensorData['AccY'] = getSignedInt16(data[5] << 8 | data[4]) / 32768 * 16;
         sensorData['AccZ'] = getSignedInt16(data[7] << 8 | data[6]) / 32768 * 16;
-        sensorData['AngX'] = getSignedInt16(data[15] << 8 | data[14]) / 32768 * 180;
-        sensorData['AngY'] = getSignedInt16(data[17] << 8 | data[16]) / 32768 * 180;
-        sensorData['AngZ'] = getSignedInt16(data[19] << 8 | data[18]) / 32768 * 180;
 
-        updateDirection(classifyDirection());
+        String newDirection = classifyDirection();
+
+        if (newDirection != 'neutral') {
+          if (!isInitialized) {
+            // Set initial direction
+            currentDirection = newDirection;
+            isInitialized = true;
+            currentDirectionStopwatch.start();
+            logMessage = 'Initial direction: $currentDirection';
+          } else {
+            updateDirection(newDirection);
+          }
+        }
       });
     }
   }
@@ -465,7 +503,7 @@ class _PosturePageState extends State<PosturePage> {
   }
 
   void updateDirection(String newDirection) {
-    if (newDirection != direction) {
+    if (newDirection != currentDirection) {
       if (newDirection != potentialNewDirection) {
         // Reset the stopwatch if a new potential direction is detected
         potentialNewDirection = newDirection;
@@ -476,16 +514,16 @@ class _PosturePageState extends State<PosturePage> {
         final logManager = Provider.of<PostureLogManager>(context, listen: false);
         logManager.addLog(PostureLogEntry(
           timestamp: DateTime.now(),
-          fromDirection: direction,
+          fromDirection: currentDirection,
           toDirection: newDirection,
-          duration: directionStopwatch.elapsed,
+          duration: currentDirectionStopwatch.elapsed,
         ));
 
         setState(() {
-          logMessage = 'Direction changed from $direction to $newDirection';
-          direction = newDirection;
-          directionStopwatch.reset();
-          directionStopwatch.start();
+          logMessage = 'Direction changed from $currentDirection to $newDirection';
+          currentDirection = newDirection;
+          currentDirectionStopwatch.reset();
+          currentDirectionStopwatch.start();
           potentialDirectionStopwatch.reset();
           showAlert = false;
         });
@@ -502,52 +540,116 @@ class _PosturePageState extends State<PosturePage> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Posture Detection'),
+        elevation: 0,
       ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Connected Device', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              Text('Name: ${widget.device.name}'),
-              Text('ID: ${widget.device.id}'),
-              SizedBox(height: 20),
-              Text('Sensor Data', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              ...sensorData.entries.map((entry) =>
-                  Text('${entry.key}: ${entry.value.toStringAsFixed(3)}')
-              ),
-              SizedBox(height: 20),
-              Text('Direction Info', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              Text('Current Direction: $direction'),
-              Text('Potential New Direction: $potentialNewDirection'),
-              StreamBuilder(
-                stream: Stream.periodic(Duration(seconds: 1)),
-                builder: (context, snapshot) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Current Direction Duration: ${formatDuration(directionStopwatch.elapsed)}'),
-                      Text('Potential Direction Duration: ${formatDuration(potentialDirectionStopwatch.elapsed)}'),
-                    ],
-                  );
-                },
-              ),
-              SizedBox(height: 20),
-              Text('Log', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              Text(logMessage),
-              SizedBox(height: 20),
-              if (showAlert)
-                Container(
-                  padding: EdgeInsets.all(16),
-                  color: Colors.yellow,
-                  child: Text(
-                    '자세를 바꿀 시간입니다!',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                ),
-            ],
+      body: Container(
+        color: Colors.white,
+        child: SafeArea(
+          child: Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildDirectionInfo(),
+                SizedBox(height: 20),
+                _buildLogSection(),
+                if (showAlert) _buildAlert(),
+              ],
+            ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDirectionInfo() {
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Direction Info',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 12),
+            _buildInfoRow('Current Direction', currentDirection),
+            _buildInfoRow('Potential New Direction', potentialNewDirection),
+            StreamBuilder(
+              stream: Stream.periodic(Duration(seconds: 1)),
+              builder: (context, snapshot) {
+                return Column(
+                  children: [
+                    _buildInfoRow('Current Duration', formatDuration(currentDirectionStopwatch.elapsed)),
+                    _buildInfoRow('Potential Duration', formatDuration(potentialDirectionStopwatch.elapsed)),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(fontWeight: FontWeight.w500)),
+          Text(value, style: TextStyle(fontSize: 16)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLogSection() {
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Container(
+        width: double.infinity,
+        padding: EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Log',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 12),
+            Text(
+              logMessage,
+              style: TextStyle(fontSize: 16),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAlert() {
+    return Card(
+      color: Colors.yellow,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(Icons.warning, color: Colors.orange, size: 24),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '자세를 바꿀 시간입니다!',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -557,7 +659,7 @@ class _PosturePageState extends State<PosturePage> {
   void dispose() {
     dataSubscription?.cancel();
     widget.device.disconnect();
-    directionStopwatch.stop();
+    currentDirectionStopwatch.stop();
     super.dispose();
   }
 }
