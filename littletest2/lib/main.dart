@@ -260,6 +260,7 @@ class _BluetoothScanPageState extends State<BluetoothScanPage> {
     await Permission.bluetoothScan.request();
     await Permission.bluetoothConnect.request();
     await Permission.location.request();
+    await Permission.notification.request();
   }
 
   void initBluetooth() {
@@ -387,13 +388,12 @@ class _BluetoothScanPageState extends State<BluetoothScanPage> {
             ),
           Expanded(
             child: ListView.builder(
-              itemCount: scanResults.length,
+              itemCount: scanResults.where((result) => result.device.name.startsWith('WT')).length,
               itemBuilder: (context, index) {
-                final result = scanResults[index];
+                final filteredResults = scanResults.where((result) => result.device.name.startsWith('WT')).toList();
+                final result = filteredResults[index];
                 return ListTile(
-                  title: Text(result.device.name.isNotEmpty
-                      ? result.device.name
-                      : 'Unknown Device'),
+                  title: Text(result.device.name),
                   subtitle: Text(result.device.id.id),
                   onTap: () => connectToDevice(result),
                 );
@@ -418,18 +418,9 @@ class _PosturePageState extends State<PosturePage> {
 
   Map<String, double> sensorData = {
     'AccX': 0,
+    'AccY': 0,
     'AccZ': 0,
   };
-
-  // String potentialNewDirection = '';
-  // Stopwatch potentialDirectionStopwatch = Stopwatch();
-  // String direction = 'Initializing...';
-  // String previousDirection = '';
-  // String logMessage = '';
-  // Stopwatch directionStopwatch = Stopwatch();
-  //
-  // bool showAlert = false;
-  // bool isInitialized = false;
 
   String currentDirection = 'Initializing...';
   String potentialNewDirection = '';
@@ -521,31 +512,11 @@ class _PosturePageState extends State<PosturePage> {
     }
   }
 
-  // void processData(List<int> data) {
-  //   if (data.length >= 20 && data[1] == 0x61) {
-  //     setState(() {
-  //       sensorData['AccX'] = getSignedInt16(data[3] << 8 | data[2]) / 32768 * 16;
-  //       sensorData['AccZ'] = getSignedInt16(data[7] << 8 | data[6]) / 32768 * 16;
-  //
-  //       String newDirection = classifyDirection();
-  //
-  //       if (!isInitialized) {
-  //         // Set initial direction
-  //         direction = newDirection;
-  //         isInitialized = true;
-  //         directionStopwatch.start();
-  //         logMessage = 'Initial direction: $direction';
-  //       } else {
-  //         updateDirection(newDirection);
-  //       }
-  //     });
-  //   }
-  // }
-
   void processData(List<int> data) {
     if (data.length >= 20 && data[1] == 0x61) {
       setState(() {
         sensorData['AccX'] = getSignedInt16(data[3] << 8 | data[2]) / 32768 * 16;
+        sensorData['AccY'] = getSignedInt16(data[5] << 8 | data[4]) / 32768 * 16;
         sensorData['AccZ'] = getSignedInt16(data[7] << 8 | data[6]) / 32768 * 16;
 
         String newDirection = classifyDirection();
@@ -574,12 +545,29 @@ class _PosturePageState extends State<PosturePage> {
 
   String classifyDirection() {
     double accX = sensorData['AccX']!;
+    double accY = sensorData['AccY']!;
     double accZ = sensorData['AccZ']!;
 
-    if (accZ >= 0.974) return 'front';
-    if (accZ <= -0.8) return 'back';
-    if (accX <= -0.9) return 'left';
-    if (accX >= 0.9) return 'right';
+    // 테스트용 알고리즘
+    // if (accZ >= 0.974) return 'front';
+    // if (accZ <= -0.8) return 'back';
+    // if (accX <= -0.9) return 'left';
+    // if (accX >= 0.9) return 'right';
+    // return 'neutral';
+
+    if ((accZ > accY) && (accZ > accX)) {
+      if ((accZ - accY) > 0.5) {
+        return 'front';
+      } else {
+        return 'left';
+      }
+    }
+    else if (accZ <= -0.3) {
+      return 'back';
+    }
+    else if ((accX > accY) && (accX > accZ)) {
+      return 'right';
+    }
     return 'neutral';
   }
 
