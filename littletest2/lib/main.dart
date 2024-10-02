@@ -11,6 +11,8 @@ import 'package:path/path.dart' as path_package;
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 
+import 'package:fl_chart/fl_chart.dart';
+
 // DB 관련 코드
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -739,77 +741,116 @@ class LogPage extends StatefulWidget {
 }
 
 class _LogPageState extends State<LogPage> {
-  bool _showCalendar = false;
-  DateTime _selectedDate = DateTime.now();
-  CalendarFormat _calendarFormat = CalendarFormat.month;
+  DateTime _startTime = DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    _startTime = DateTime(_startTime.year, _startTime.month, _startTime.day,
+        _startTime.hour, (_startTime.minute ~/ 5) * 5);
+  }
 
   @override
   Widget build(BuildContext context) {
-    // 여기서 로그를 로드합니다
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Provider.of<PostureLogManager>(context, listen: false).loadLogsByDate(_selectedDate);
-    });
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Log Records'),
-        actions: [
-          IconButton(
-            icon: Icon(_showCalendar ? Icons.list : Icons.calendar_today),
-            onPressed: () {
-              setState(() {
-                _showCalendar = !_showCalendar;
-              });
-            },
-          ),
-        ],
+        title: const Text('log'),
       ),
-      body: Column(
-        children: [
-          if (_showCalendar) _buildCalendar(),
-          Expanded(
-            child: Consumer<PostureLogManager>(
+      body: SingleChildScrollView(  // 스크롤 가능하게 만듦
+        child: Column(
+          children: [
+            Text('시작 시간: ${DateFormat('yyyy-MM-dd HH:mm').format(_startTime)}',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+
+            Consumer<PostureLogManager>(
               builder: (context, logManager, child) {
-                return ListView.builder(
-                  itemCount: logManager.logs.length,
-                  itemBuilder: (context, index) {
-                    final log = logManager.logs[index];
-                    return ListTile(
-                      title: Text('${log.fromDirection} → ${log.toDirection}'),
-                      subtitle: Text('Duration: ${formatDuration(log.duration)}'),
-                      trailing: Text(DateFormat('HH:mm:ss').format(log.timestamp)),
-                    );
-                  },
+                print('로그 개수: ${logManager.logs.length}'); // 디버깅용 출력
+                return Column(
+                  children: [
+                    Text('낮 시간 그래프 (5분)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    _buildPieChart(logManager.logs, isDayTime: true),
+                    Text('밤 시간 그래프 (5분)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    _buildPieChart(logManager.logs, isDayTime: false),
+                    // 그래프와 로그 사이의 여백 추가
+                    SizedBox(height: 20),
+                    Container(
+                      height: 400, // 로그를 위한 고정된 높이
+                      child: ListView.builder(
+                        itemCount: logManager.logs.length,
+                        itemBuilder: (context, index) {
+                          final log = logManager.logs[index];
+                          return ListTile(
+                            title: Text('${log.fromDirection} → ${log.toDirection}'),
+                            subtitle: Text('Duration: ${formatDuration(log.duration)}'),
+                            trailing: Text(DateFormat('HH:mm:ss').format(log.timestamp)),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 );
               },
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildCalendar() {
-    return TableCalendar(
-      firstDay: DateTime.utc(2023, 1, 1),
-      lastDay: DateTime.utc(2030, 12, 31),
-      focusedDay: _selectedDate,
-      calendarFormat: _calendarFormat,
-      selectedDayPredicate: (day) {
-        return isSameDay(_selectedDate, day);
-      },
-      onDaySelected: (selectedDay, focusedDay) {
-        setState(() {
-          _selectedDate = selectedDay;
-          Provider.of<PostureLogManager>(context as BuildContext, listen: false).loadLogsByDate(_selectedDate);
-        });
-      },
-      onFormatChanged: (format) {
-        setState(() {
-          _calendarFormat = format;
-        });
-      },
+  Widget _buildPieChart(List<PostureLogEntry> logs, {required bool isDayTime}) {
+    final DateTime startTime = isDayTime ? _startTime : _startTime.add(Duration(minutes: 5));
+    final DateTime endTime = startTime.add(Duration(minutes: 5));
+
+
+    final Map<String, double> postureDurations = {
+      'front': 0.0,
+      'back': 0.0,
+      'left': 0.0,
+      'right': 0.0,
+    };
+
+
+
+
+    List<PieChartSectionData> sections = [];
+    postureDurations.forEach((direction, duration) {
+      if (duration > 0) {
+        sections.add(PieChartSectionData(
+          color: _getPostureColor(direction),
+          value: duration,
+          title: '$direction\n${duration.toStringAsFixed(1)}s',
+          radius: 70, // 그래프 크기 조정
+          titleStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+        ));
+      }
+    });
+
+    if (sections.isEmpty) {
+      return Center(child: Text('이 시간대의 데이터가 없습니다'));
+    }
+
+    return Container(
+      height: 200,
+      padding: EdgeInsets.all(16),
+      child: PieChart(
+        PieChartData(
+          sections: sections,
+          centerSpaceRadius: 30, // 중심 공간 크기 조정
+          sectionsSpace: 2,
+          pieTouchData: PieTouchData(touchCallback: (_, __) {}),
+        ),
+      ),
     );
+  }
+
+  Color _getPostureColor(String direction) {
+    switch (direction) {
+      case 'front': return Colors.green;
+      case 'back': return Colors.red;
+      case 'left': return Colors.blue;
+      case 'right': return Colors.orange;
+      default: return Colors.grey;
+    }
   }
 }
 
