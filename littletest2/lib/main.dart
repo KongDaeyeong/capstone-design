@@ -192,7 +192,7 @@ class _MainScreenState extends State<MainScreen> {
           if (connectedDevice != null)
             PosturePage(device: connectedDevice!)
           else
-            Center(child: Text('Please connect to a device first')),
+            Center(child: Text('먼저 센서와 연결이 필요합니다.')),
           LogPage(),
         ],
       ),
@@ -200,15 +200,15 @@ class _MainScreenState extends State<MainScreen> {
         items: const <BottomNavigationBarItem>[
           BottomNavigationBarItem(
             icon: Icon(Icons.bluetooth),
-            label: 'Scan',
+            label: '기기 검색',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.accessibility_new),
-            label: 'Posture',
+            label: '자세',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.list),
-            label: 'Log',
+            label: '기록',
           ),
         ],
         currentIndex: _selectedIndex,
@@ -307,12 +307,12 @@ class _BluetoothScanPageState extends State<BluetoothScanPage> {
       });
       _startConnectionTimer();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Connected to ${result.device.name}')),
+        SnackBar(content: Text('연결에 성공했습니다. : ${result.device.name}')),
       );
     } catch (e) {
       print('Failed to connect: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to connect: ${e.toString()}')),
+        SnackBar(content: Text('연결에 실패했습니다. : ${e.toString()}')),
       );
     }
   }
@@ -326,12 +326,12 @@ class _BluetoothScanPageState extends State<BluetoothScanPage> {
       });
       _connectionTimer?.cancel();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Disconnected from ${widget.connectedDevice?.name}')),
+        SnackBar(content: Text('기기 연결 해제 ${widget.connectedDevice?.name}')),
       );
     } catch (e) {
       print('Failed to disconnect: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to disconnect: ${e.toString()}')),
+        SnackBar(content: Text('기기 연결에 실패했습니다. : ${e.toString()}')),
       );
     }
   }
@@ -355,7 +355,7 @@ class _BluetoothScanPageState extends State<BluetoothScanPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Bluetooth Scan'),
+        title: const Text('기기 검색'),
         actions: [
           IconButton(
             icon: Icon(_isScanning ? Icons.stop : Icons.search),
@@ -373,14 +373,14 @@ class _BluetoothScanPageState extends State<BluetoothScanPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Connected Device', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    Text('Name: ${widget.connectedDevice!.name}'),
-                    Text('ID: ${widget.connectedDevice!.id}'),
+                    Text('연결된 기기', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    Text('기기 이름: ${widget.connectedDevice!.name}'),
+                    Text('기기 아이디: ${widget.connectedDevice!.id}'),
                     if (_connectionStartTime != null)
-                      Text('Connection Duration: ${_formatDuration(DateTime.now().difference(_connectionStartTime!))}'),
+                      Text('연결 유지 시간: ${_formatDuration(DateTime.now().difference(_connectionStartTime!))}'),
                     ElevatedButton(
                       onPressed: disconnectDevice,
-                      child: Text('Disconnect'),
+                      child: Text('연결 해제'),
                     ),
                   ],
                 ),
@@ -422,7 +422,7 @@ class _PosturePageState extends State<PosturePage> {
     'AccZ': 0,
   };
 
-  String currentDirection = 'Initializing...';
+  String currentDirection = '초기화 중...';
   String potentialNewDirection = '';
   Stopwatch potentialDirectionStopwatch = Stopwatch();
   Stopwatch currentDirectionStopwatch = Stopwatch();
@@ -488,7 +488,7 @@ class _PosturePageState extends State<PosturePage> {
     } catch (e) {
       print('Failed to connect: $e');
       ScaffoldMessenger.of(context as BuildContext).showSnackBar(
-        SnackBar(content: Text('Failed to connect: ${e.toString()}')),
+        SnackBar(content: Text('기기 연결에 실패했습니다. : ${e.toString()}')),
       );
     }
   }
@@ -527,7 +527,7 @@ class _PosturePageState extends State<PosturePage> {
             currentDirection = newDirection;
             isInitialized = true;
             currentDirectionStopwatch.start();
-            logMessage = 'Initial direction: $currentDirection';
+            logMessage = '초기 자세: $currentDirection';
           } else {
             updateDirection(newDirection);
           }
@@ -547,13 +547,6 @@ class _PosturePageState extends State<PosturePage> {
     double accX = sensorData['AccX']!;
     double accY = sensorData['AccY']!;
     double accZ = sensorData['AccZ']!;
-
-    // 테스트용 알고리즘
-    // if (accZ >= 0.974) return 'front';
-    // if (accZ <= -0.8) return 'back';
-    // if (accX <= -0.9) return 'left';
-    // if (accX >= 0.9) return 'right';
-    // return 'neutral';
 
     if ((accZ > accY) && (accZ > accX)) {
       if ((accZ - accY) > 0.5) {
@@ -608,7 +601,7 @@ class _PosturePageState extends State<PosturePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Posture Detection'),
+        title: Text('자세 판별'),
         elevation: 0,
       ),
       body: Container(
@@ -641,19 +634,19 @@ class _PosturePageState extends State<PosturePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Direction Info',
+              '자세 정보',
               style: Theme.of(context as BuildContext).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
             ),
             SizedBox(height: 12),
-            _buildInfoRow('Current Direction', currentDirection),
-            _buildInfoRow('Potential New Direction', potentialNewDirection),
+            _buildInfoRow('현재 자세', currentDirection),
+            _buildInfoRow('변경 예정 자세', potentialNewDirection),
             StreamBuilder(
               stream: Stream.periodic(Duration(seconds: 1)),
               builder: (context, snapshot) {
                 return Column(
                   children: [
-                    _buildInfoRow('Current Duration', formatDuration(currentDirectionStopwatch.elapsed)),
-                    _buildInfoRow('Potential Duration', formatDuration(potentialDirectionStopwatch.elapsed)),
+                    _buildInfoRow('자세 유지 시간', formatDuration(currentDirectionStopwatch.elapsed)),
+                    _buildInfoRow('자세 변경 시간', formatDuration(potentialDirectionStopwatch.elapsed)),
                   ],
                 );
               },
@@ -688,7 +681,7 @@ class _PosturePageState extends State<PosturePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Log',
+              '최근 자세 변동 이력',
               style: Theme.of(context as BuildContext).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
             ),
             SizedBox(height: 12),
@@ -752,7 +745,7 @@ class _LogPageState extends State<LogPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Log Records'),
+        title: const Text('자세 변경 이력'),
         actions: [
           IconButton(
             icon: Icon(_showCalendar ? Icons.list : Icons.calendar_today),
@@ -776,7 +769,7 @@ class _LogPageState extends State<LogPage> {
                     final log = logManager.logs[index];
                     return ListTile(
                       title: Text('${log.fromDirection} → ${log.toDirection}'),
-                      subtitle: Text('Duration: ${formatDuration(log.duration)}'),
+                      subtitle: Text('유지 시간: ${formatDuration(log.duration)}'),
                       trailing: Text(DateFormat('HH:mm:ss').format(log.timestamp)),
                     );
                   },
