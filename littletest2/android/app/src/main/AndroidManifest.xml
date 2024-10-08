@@ -8,7 +8,7 @@
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"/>
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
     <application
-        android:label="littletest2"
+        android:label="리틀밴드"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
