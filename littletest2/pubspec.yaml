@@ -24,6 +24,10 @@ dependencies:
   cupertino_icons: ^1.0.8
   flutter_blue_plus: ^1.32.12
 
+  # aws cognito, 로그인 관련
+  amazon_cognito_identity_dart_2: ^3.0.0
+  flutter_secure_storage: ^8.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
