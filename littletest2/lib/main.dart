@@ -4,6 +4,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:fl_chart/fl_chart.dart';
 
 // DB와 캘린더 기능 추가..
 import 'package:sqflite/sqflite.dart';
@@ -102,7 +103,43 @@ class PostureLogManager extends ChangeNotifier {
   // DB
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
 
+  Map<String, Duration> _postureDurations = {
+    'front': Duration.zero,
+    'left': Duration.zero,
+    'right': Duration.zero,
+    'back': Duration.zero,
+  };
+  bool _isConnected = false;
+
   List<PostureLogEntry> get logs => List.unmodifiable(_logs);
+
+  Map<String, Duration> get postureDurations => Map.unmodifiable(_postureDurations);
+  bool get isConnected => _isConnected;
+
+  void resetPostureDurations() {
+    _postureDurations = {
+      'front': Duration.zero,
+      'left': Duration.zero,
+      'right': Duration.zero,
+      'back': Duration.zero,
+    };
+    notifyListeners();
+  }
+
+  void setConnected(bool connected) {
+    _isConnected = connected;
+    if (!connected) {
+      resetPostureDurations();
+    }
+    notifyListeners();
+  }
+
+  void updatePostureDuration(String posture, Duration duration) {
+    if ((_isConnected && (posture != 'neutral')) && (posture != '초기화 중...')) {
+      _postureDurations[posture] = (_postureDurations[posture] ?? Duration.zero) + duration;
+      notifyListeners();
+    }
+  }
 
   Future<void> addLog(PostureLogEntry entry) async {
     await _dbHelper.insertLog(entry);
@@ -175,6 +212,10 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   final AuthService _authService = AuthService();
   Timer? _tokenRefreshTimer;
+  int _selectedIndex = 0;
+  BluetoothDevice? connectedDevice;
+  String currentDirection = '초기화 중...';
+  Stopwatch currentDirectionStopwatch = Stopwatch();
 
   @override
   void initState() {
@@ -209,8 +250,6 @@ class _MainScreenState extends State<MainScreen> {
     super.dispose();
   }
 
-  int _selectedIndex = 0;
-  BluetoothDevice? connectedDevice;
 
   void _onItemTapped(int index) {
     setState(() {
@@ -239,10 +278,20 @@ class _MainScreenState extends State<MainScreen> {
         children: [
           BluetoothScanPage(onDeviceConnected: setConnectedDevice, connectedDevice: connectedDevice),
           if (connectedDevice != null)
-            PosturePage(device: connectedDevice!)
+            PosturePage(
+              device: connectedDevice!,
+              onDirectionChange: (direction) {
+                setState(() {
+                  currentDirection = direction;
+                });
+              },
+              onStopwatchUpdate: (stopwatch) {
+                currentDirectionStopwatch = stopwatch;
+              },
+            )
           else
             Center(child: Text('먼저 센서와 연결이 필요합니다.')),
-          LogPage(),
+          LogPage( ),
           SettingsPage(),
         ],
       ),
@@ -533,13 +582,23 @@ class _BluetoothScanPageState extends State<BluetoothScanPage> {
 
 class PosturePage extends StatefulWidget {
   final BluetoothDevice device;
-  const PosturePage({Key? key, required this.device}) : super(key: key);
+  final Function(String) onDirectionChange;
+  final Function(Stopwatch) onStopwatchUpdate;
+
+  const PosturePage({
+    Key? key,
+    required this.device,
+    required this.onDirectionChange,
+    required this.onStopwatchUpdate,
+  }) : super(key: key);
   @override
   _PosturePageState createState() => _PosturePageState();
 }
 
 class _PosturePageState extends State<PosturePage> {
   StreamSubscription<List<int>>? dataSubscription;
+  bool isConnected = false;
+  DateTime lastDataReceived = DateTime.now();
 
   Map<String, double> sensorData = {
     'AccX': 0,
@@ -555,18 +614,22 @@ class _PosturePageState extends State<PosturePage> {
   String logMessage = '';
   bool showAlert = false;
   bool isInitialized = false;
+  bool showChart = false;
 
   @override
   void initState() {
     super.initState();
+    monitorConnection();
     startWorkingWithDevice(widget.device);
     Timer.periodic(Duration(seconds: 1), (timer) {
       checkPostureDuration();
+      checkDataReception();
+      updatePostureDuration();
     });
   }
 
   void checkPostureDuration() {
-    if (currentDirectionStopwatch.elapsed >= Duration(seconds: 10)) {
+    if (currentDirectionStopwatch.elapsed >= Duration(seconds: 7200)) {
       showNotification();
       setState(() {
         showAlert = true;
@@ -576,6 +639,54 @@ class _PosturePageState extends State<PosturePage> {
         showAlert = false;
       });
     }
+  }
+
+  void monitorConnection() {
+    widget.device.connectionState.listen((BluetoothConnectionState state) {
+      final logManager = Provider.of<PostureLogManager>(context, listen: false);
+      if (state == BluetoothConnectionState.disconnected) {
+        setState(() {
+          isConnected = false;
+          currentDirection = '연결 끊김';
+          currentDirectionStopwatch.stop();
+        });
+        logManager.setConnected(false);
+        widget.onDirectionChange(currentDirection);
+        widget.onStopwatchUpdate(currentDirectionStopwatch);
+      } else if (state == BluetoothConnectionState.connected) {
+        setState(() {
+          isConnected = true;
+        });
+        logManager.setConnected(true);
+      }
+    });
+  }
+
+  void updatePostureDuration() {
+    if ((isConnected && (currentDirection != '초기화 중...')) && (currentDirection != '연결 끊김')) {
+      final logManager = Provider.of<PostureLogManager>(context, listen: false);
+      logManager.updatePostureDuration(currentDirection, Duration(seconds: 1));
+    }
+  }
+
+  void checkDataReception() {
+    if (DateTime.now().difference(lastDataReceived).inSeconds > 3) {
+      setState(() {
+        isConnected = false;
+        currentDirection = '연결 끊김';
+        currentDirectionStopwatch.stop();
+      });
+      widget.onDirectionChange(currentDirection);
+      widget.onStopwatchUpdate(currentDirectionStopwatch);
+    }
+  }
+
+  void stopRecording() {
+    currentDirectionStopwatch.stop();
+    setState(() {
+      currentDirection = '연결 끊김';
+    });
+    // 필요한 경우 로그 저장 등의 작업 수행
   }
 
   Future<void> showNotification() async {
@@ -638,6 +749,7 @@ class _PosturePageState extends State<PosturePage> {
   }
 
   void processData(List<int> data) {
+    lastDataReceived = DateTime.now();
     if (data.length >= 20 && data[1] == 0x61) {
       setState(() {
         sensorData['AccX'] = getSignedInt16(data[3] << 8 | data[2]) / 32768 * 16;
@@ -673,18 +785,22 @@ class _PosturePageState extends State<PosturePage> {
     double accY = sensorData['AccY']!;
     double accZ = sensorData['AccZ']!;
 
-    if ((accZ > accY) && (accZ > accX)) {
-      if ((accZ - accY) > 0.5) {
+
+    if ((accZ.abs() > accX.abs()) && (accZ.abs() > accY.abs())) {
+      if (accZ >= 0) {
         return 'front';
-      } else {
-        return 'left';
+      }
+      else if(accZ < 0){
+        return 'back';
       }
     }
-    else if (accZ <= -0.3) {
-      return 'back';
-    }
-    else if ((accX > accY) && (accX > accZ)) {
-      return 'right';
+    else if((accX.abs() > accZ.abs()) && (accX.abs() > accY.abs())){
+      if (accX >= 0) {
+        return 'right';
+      }
+      else if(accX < 0){
+        return 'left';
+      }
     }
     return 'neutral';
   }
@@ -696,9 +812,9 @@ class _PosturePageState extends State<PosturePage> {
         potentialNewDirection = newDirection;
         potentialDirectionStopwatch.reset();
         potentialDirectionStopwatch.start();
-      } else if (potentialDirectionStopwatch.elapsed >= Duration(seconds: 5)) {
+      } else if (potentialDirectionStopwatch.elapsed >= Duration(seconds: 5) || !isInitialized) {
         // If the potential direction has been maintained for 5 seconds, update the direction
-        final logManager = Provider.of<PostureLogManager>(context as BuildContext, listen: false);
+        final logManager = Provider.of<PostureLogManager>(context, listen: false);
         logManager.addLog(PostureLogEntry(
           timestamp: DateTime.now(),
           fromDirection: currentDirection,
@@ -714,6 +830,8 @@ class _PosturePageState extends State<PosturePage> {
           potentialDirectionStopwatch.reset();
           showAlert = false;
         });
+        widget.onDirectionChange(currentDirection);
+        widget.onStopwatchUpdate(currentDirectionStopwatch);
       }
     } else {
       // Reset potential direction if current direction is detected again
@@ -728,20 +846,35 @@ class _PosturePageState extends State<PosturePage> {
       appBar: AppBar(
         title: Text('자세 판별'),
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: Icon(showChart ? Icons.info : Icons.bar_chart),
+            onPressed: () {
+              setState(() {
+                showChart = !showChart;
+              });
+            },
+          ),
+        ],
       ),
       body: Container(
         color: Colors.white,
         child: SafeArea(
-          child: Padding(
-            padding: EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildDirectionInfo(),
-                SizedBox(height: 20),
-                _buildLogSection(),
-                if (showAlert) _buildAlert(),
-              ],
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!showChart) ...[
+                    _buildDirectionInfo(),
+                    SizedBox(height: 20),
+                    _buildLogSection(),
+                    if (showAlert) _buildAlert(),
+                  ],
+                  if (showChart) _buildBarChart(),
+                ],
+              ),
             ),
           ),
         ),
@@ -840,6 +973,109 @@ class _PosturePageState extends State<PosturePage> {
         ),
       ),
     );
+  }
+
+  Widget _buildBarChart() {
+    final logManager = Provider.of<PostureLogManager>(context);
+    final postureDurations = logManager.postureDurations;
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.7, // 화면 높이의 70%로 설정
+      padding: EdgeInsets.all(16),
+      child: BarChart(
+        BarChartData(
+          alignment: BarChartAlignment.spaceAround,
+          maxY: postureDurations.values.fold(0, (max, duration) => duration.inSeconds > max ? duration.inSeconds : max).toDouble(),
+          barTouchData: BarTouchData(
+            touchTooltipData: BarTouchTooltipData(
+              getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                String postureName = '';
+                switch (group.x.toInt()) {
+                  case 0:
+                    postureName = '앞';
+                    break;
+                  case 1:
+                    postureName = '왼쪽';
+                    break;
+                  case 2:
+                    postureName = '오른쪽';
+                    break;
+                  case 3:
+                    postureName = '뒤';
+                    break;
+                }
+                return BarTooltipItem(
+                  '$postureName\n${_formatDuration(Duration(seconds: rod.toY.toInt()))}',
+                  const TextStyle(color: Colors.yellow),
+                );
+              },
+            ),
+          ),
+          titlesData: FlTitlesData(
+            show: true,
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                getTitlesWidget: (value, meta) {
+                  switch (value.toInt()) {
+                    case 0:
+                      return Text('앞');
+                    case 1:
+                      return Text('왼쪽');
+                    case 2:
+                      return Text('오른쪽');
+                    case 3:
+                      return Text('뒤');
+                    default:
+                      return Text('');
+                  }
+                },
+                reservedSize: 30,
+              ),
+            ),
+            leftTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                reservedSize: 40,
+                getTitlesWidget: (value, meta) {
+                  return Text(_formatDuration(Duration(seconds: value.toInt())));
+                },
+              ),
+            ),
+            topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          ),
+          borderData: FlBorderData(show: false),
+          barGroups: [
+            BarChartGroupData(
+              x: 0,
+              barRods: [BarChartRodData(toY: postureDurations['front']!.inSeconds.toDouble(), color: Colors.red)],
+            ),
+            BarChartGroupData(
+              x: 1,
+              barRods: [BarChartRodData(toY: postureDurations['left']!.inSeconds.toDouble(), color: Colors.green)],
+            ),
+            BarChartGroupData(
+              x: 2,
+              barRods: [BarChartRodData(toY: postureDurations['right']!.inSeconds.toDouble(), color: Colors.blue)],
+            ),
+            BarChartGroupData(
+              x: 3,
+              barRods: [BarChartRodData(toY: postureDurations['back']!.inSeconds.toDouble(), color: Colors.yellow)],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
+    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
+    return duration.inHours > 0
+        ? '${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds'
+        : '$twoDigitMinutes:$twoDigitSeconds';
   }
 
   @override
