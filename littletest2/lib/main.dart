@@ -449,6 +449,22 @@ class _BluetoothScanPageState extends State<BluetoothScanPage> {
 
   void scanForDevices() async {
     if (!_isScanning) {
+      bool isBluetoothOn = await FlutterBluePlus.isOn;
+
+      if (!isBluetoothOn) {
+        // Show Snackbar if Bluetooth is off
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('블루투스를 켜고 다시 시도해주세요.'),
+            duration: Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10.0),
+            ),
+          ),
+        );
+        return; // Exit the method if Bluetooth is off
+      }
       if (_mounted) {
         setState(() {
           scanResults.clear();
