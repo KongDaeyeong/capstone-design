@@ -448,7 +448,23 @@ class _BluetoothScanPageState extends State<BluetoothScanPage> {
   }
 
   void scanForDevices() async {
-    if (!_isScanning) {
+      if (!_isScanning) {
+        bool isBluetoothOn = await FlutterBluePlus.isOn;
+
+        if (!isBluetoothOn) {
+          // Show Snackbar if Bluetooth is off
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('블루투스를 켜고 다시 시도해주세요.'),
+              duration: Duration(seconds: 3),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10.0),
+              ),
+            ),
+          );
+          return; // Exit the method if Bluetooth is off
+        }
       if (_mounted) {
         setState(() {
           scanResults.clear();
@@ -469,7 +485,7 @@ class _BluetoothScanPageState extends State<BluetoothScanPage> {
     } else {
       await FlutterBluePlus.stopScan();
     }
-  }
+    }
 
   void connectToDevice(ScanResult result) async {
     await FlutterBluePlus.stopScan();
@@ -616,6 +632,16 @@ class _PosturePageState extends State<PosturePage> {
   bool isInitialized = false;
   bool showChart = false;
 
+
+  //자세 가이드
+  List<String> postureSequence = ['front', 'right', 'back', 'left'];
+  int currentPostureIndex = 0;
+  bool showWarning = false;
+
+  String get nextRecommendedPosture {
+    return postureSequence[(currentPostureIndex + 1) % postureSequence.length];
+  }
+
   @override
   void initState() {
     super.initState();
@@ -629,7 +655,7 @@ class _PosturePageState extends State<PosturePage> {
   }
 
   void checkPostureDuration() {
-    if (currentDirectionStopwatch.elapsed >= Duration(seconds: 7200)) {
+    if (currentDirectionStopwatch.elapsed >= Duration(seconds: 10)) {
       showNotification();
       setState(() {
         showAlert = true;
@@ -822,6 +848,12 @@ class _PosturePageState extends State<PosturePage> {
           duration: currentDirectionStopwatch.elapsed,
         ));
 
+        if (newDirection != nextRecommendedPosture) {
+          showWarningDialog(newDirection);
+        } else {
+          updatePostureIndex(newDirection);
+        }
+
         setState(() {
           logMessage = 'Direction changed from $currentDirection to $newDirection';
           currentDirection = newDirection;
@@ -838,6 +870,47 @@ class _PosturePageState extends State<PosturePage> {
       potentialNewDirection = '';
       potentialDirectionStopwatch.reset();
     }
+  }
+
+  void updatePostureIndex(String newDirection) {
+    currentPostureIndex = postureSequence.indexOf(newDirection);
+  }
+
+  void showWarningDialog(String newDirection) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('잘못된 자세 변경'),
+          content: Text('권장 자세($nextRecommendedPosture)가 아닌 $newDirection(으)로 변경했습니다. 계속 진행하시겠습니까?'),
+          actions: <Widget>[
+            TextButton(
+              child: Text('아니요'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                showCorrectPostureAlert();
+              },
+            ),
+            TextButton(
+              child: Text('예'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                updatePostureIndex(newDirection);
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void showCorrectPostureAlert() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('올바른 자세($nextRecommendedPosture)로 변경해주세요.'),
+        duration: Duration(seconds: 3),
+      ),
+    );
   }
 
   @override
@@ -869,6 +942,8 @@ class _PosturePageState extends State<PosturePage> {
                   if (!showChart) ...[
                     _buildDirectionInfo(),
                     SizedBox(height: 20),
+                    _buildNextPostureGuide(),
+                    SizedBox(height: 20),
                     _buildLogSection(),
                     if (showAlert) _buildAlert(),
                   ],
@@ -877,6 +952,30 @@ class _PosturePageState extends State<PosturePage> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNextPostureGuide() {
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '다음 권장 자세',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 12),
+            Text(
+              nextRecommendedPosture,
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue),
+            ),
+          ],
         ),
       ),
     );
