@@ -73,14 +73,4 @@ jobs:
           name: Release v${{ github.run_number }}
           draft: false
           prerelease: false
-
-      - name: Upload Release APK
-        id: upload_release_asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: app-release.apk
-          asset_name: app-release.apk
-          asset_content_type: application/vnd.android.package-archive
+          generate_release_notes: false
