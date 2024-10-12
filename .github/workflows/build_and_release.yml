@@ -33,7 +33,6 @@ jobs:
 
       - name: Build APK
         run: flutter build apk --release
-        working-directory: littletest2
 
       - name: Upload APK
         uses: actions/upload-artifact@v3
