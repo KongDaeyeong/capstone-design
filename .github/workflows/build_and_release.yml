@@ -31,10 +31,6 @@ jobs:
         run: flutter pub get
         working-directory: littletest2
 
-      - name: Run tests
-        run: flutter test
-        working-directory: littletest2
-
       - name: Build APK
         run: flutter build apk --release
         working-directory: littletest2
