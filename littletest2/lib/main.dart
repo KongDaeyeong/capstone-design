@@ -645,7 +645,7 @@ class _PosturePageState extends State<PosturePage> {
   }
 
   void checkPostureDuration() {
-    if (currentDirectionStopwatch.elapsed >= Duration(seconds: 7200)) {
+    if (currentDirectionStopwatch.elapsed >= Duration(seconds: 10)) {
       showNotification();
       setState(() {
         showAlert = true;
