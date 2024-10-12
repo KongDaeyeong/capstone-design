@@ -33,12 +33,14 @@ jobs:
 
       - name: Build APK
         run: flutter build apk --release
+        working-directory: littletest2
 
       - name: Upload APK
         uses: actions/upload-artifact@v3
         with:
           name: release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+        working-directory: littletest2
 
   release:
     name: Release APK
