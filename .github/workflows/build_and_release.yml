@@ -31,15 +31,15 @@ jobs:
         run: flutter pub get
         working-directory: littletest2
 
+      - name: Build APK
+        run: flutter build apk --release
+        working-directory: littletest2
+
       - name: Check and change working directory
         run: |
           echo "Current working directory: $(pwd)"
           cd build/app/outputs/flutter-apk
           echo "New working directory: $(pwd)"
-
-      - name: Build APK
-        run: flutter build apk --release
-        working-directory: littletest2
 
       - name: Upload APK
         uses: actions/upload-artifact@v3
