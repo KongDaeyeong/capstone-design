@@ -13,17 +13,25 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'  # 사용하는 Flutter 버전에 맞게 수정하세요
+          flutter-version: '3.24.0'
           channel: 'stable'
+
+      - name: Show current directory and files
+        run: |
+          pwd
+          ls -R
 
       - name: Get dependencies
         run: flutter pub get
+        working-directory: .  # 프로젝트 루트 디렉토리 지정
 
       - name: Run tests
         run: flutter test
+        working-directory: .  # 프로젝트 루트 디렉토리 지정
 
       - name: Build APK
         run: flutter build apk --release
+        working-directory: .  # 프로젝트 루트 디렉토리 지정
 
       - name: Upload APK
         uses: actions/upload-artifact@v3
