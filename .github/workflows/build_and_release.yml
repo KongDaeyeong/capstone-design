@@ -19,7 +19,7 @@ jobs:
       - name: Check working directory
         run: pwd
       - name: List directory contents
-        run: ls -la
+        run: cd littletest2
       - name: Check pubspec.yaml
         run: ls pubspec.yaml
 
