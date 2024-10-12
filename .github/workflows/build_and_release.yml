@@ -39,8 +39,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
-        working-directory: littletest2
+          path: build/app/outputs/flutter-apk/*.apk
 
   release:
     name: Release APK
