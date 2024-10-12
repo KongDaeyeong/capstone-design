@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
@@ -542,10 +544,24 @@ class _BluetoothScanPageState extends State<BluetoothScanPage> {
   }
 
   @override
+  Widget _buildScanningIndicator() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(),
+          SizedBox(height: 16),
+          Text('블루투스 기기 검색 중...', style: TextStyle(fontSize: 16)),
+        ],
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('기기 검색'),
+        title: const Text('기기 검색', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
             icon: Icon(_isScanning ? Icons.stop : Icons.search),
@@ -556,42 +572,77 @@ class _BluetoothScanPageState extends State<BluetoothScanPage> {
       body: Column(
         children: [
           if (widget.connectedDevice != null)
-            Card(
-              margin: EdgeInsets.all(8),
-              child: Padding(
-                padding: EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('연결된 기기', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    Text('기기 이름: ${widget.connectedDevice!.name}'),
-                    Text('기기 아이디: ${widget.connectedDevice!.id}'),
-                    if (_connectionStartTime != null)
-                      Text('연결 유지 시간: ${_formatDuration(DateTime.now().difference(_connectionStartTime!))}'),
-                    ElevatedButton(
-                      onPressed: disconnectDevice,
-                      child: Text('연결 해제'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            _buildConnectedDeviceCard(),
           Expanded(
-            child: ListView.builder(
-              itemCount: scanResults.where((result) => result.device.name.startsWith('WT')).length,
-              itemBuilder: (context, index) {
-                final filteredResults = scanResults.where((result) => result.device.name.startsWith('WT')).toList();
-                final result = filteredResults[index];
-                return ListTile(
-                  title: Text(result.device.name),
-                  subtitle: Text(result.device.id.id),
-                  onTap: () => connectToDevice(result),
-                );
-              },
-            ),
+            child: _isScanning
+                ? _buildScanningIndicator()
+                : _buildScanResultsList(),
           ),
         ],
       ),
+    );
+  }
+
+
+  Widget _buildConnectedDeviceCard() {
+    return Card(
+      margin: EdgeInsets.all(16),
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('연결된 기기', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            SizedBox(height: 8),
+            Text('기기 이름: ${widget.connectedDevice!.name}'),
+            Text('기기 아이디: ${widget.connectedDevice!.id}'),
+            if (_connectionStartTime != null)
+              Text('연결 유지 시간: ${_formatDuration(DateTime.now().difference(_connectionStartTime!))}'),
+            SizedBox(height: 8),
+            ElevatedButton(
+              onPressed: disconnectDevice,
+              child: Text('연결 해제'),
+              style: ElevatedButton.styleFrom(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScanResultsList() {
+    final filteredResults = scanResults.where((result) => result.device.name.startsWith('WT')).toList();
+
+    if (filteredResults.isEmpty) {
+      return Center(
+        child: Text('검색된 기기가 없습니다.', style: TextStyle(fontSize: 16)),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: filteredResults.length,
+      itemBuilder: (context, index) {
+        final result = filteredResults[index];
+        return Card(
+          margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: ListTile(
+            title: Text(result.device.name, style: TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text(result.device.id.id),
+            trailing: ElevatedButton(
+              child: Text('연결'),
+              onPressed: () => connectToDevice(result),
+              style: ElevatedButton.styleFrom(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -611,10 +662,13 @@ class PosturePage extends StatefulWidget {
   _PosturePageState createState() => _PosturePageState();
 }
 
-class _PosturePageState extends State<PosturePage> {
+class _PosturePageState extends State<PosturePage> with SingleTickerProviderStateMixin {
   StreamSubscription<List<int>>? dataSubscription;
   bool isConnected = false;
   DateTime lastDataReceived = DateTime.now();
+
+  late AnimationController _animationController;
+  late Animation<double> _animation;
 
   Map<String, double> sensorData = {
     'AccX': 0,
@@ -716,19 +770,24 @@ class _PosturePageState extends State<PosturePage> {
   }
 
   Future<void> showNotification() async {
-    const AndroidNotificationDetails androidPlatformChannelSpecifics =
+    AndroidNotificationDetails androidPlatformChannelSpecifics =
     AndroidNotificationDetails(
       'posture_channel_id',
       'Posture Notifications',
       importance: Importance.max,
       priority: Priority.high,
       ticker: 'ticker',
+      playSound: true,
+      enableVibration: true,
+      vibrationPattern: Int64List.fromList([0, 500, 200, 500]),
     );
 
     const DarwinNotificationDetails iOSPlatformChannelSpecifics =
-    DarwinNotificationDetails();
+    DarwinNotificationDetails(
+      presentSound: true,
+    );
 
-    const NotificationDetails platformChannelSpecifics = NotificationDetails(
+    NotificationDetails platformChannelSpecifics = NotificationDetails(
       android: androidPlatformChannelSpecifics,
       iOS: iOSPlatformChannelSpecifics,
     );
@@ -740,6 +799,8 @@ class _PosturePageState extends State<PosturePage> {
       platformChannelSpecifics,
       payload: 'posture_notification',
     );
+
+    HapticFeedback.vibrate();
   }
 
 
