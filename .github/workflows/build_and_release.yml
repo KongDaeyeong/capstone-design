@@ -1,0 +1,111 @@
+name: Flutter CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.3'
+          channel: 'stable'
+
+      - name: Change to project directory
+        run: cd littletest2
+      - name: Check working directory
+        run: pwd
+        working-directory: littletest2
+      - name: List directory contents
+        run: ls -la
+        working-directory: littletest2
+      - name: Check pubspec.yaml
+        run: ls pubspec.yaml
+        working-directory: littletest2
+      - name: Get dependencies
+        run: flutter pub get
+        working-directory: littletest2
+
+      - name: Build APK
+        run: |
+          echo "Current working directory: $(pwd)"
+          flutter build apk --release
+        working-directory: littletest2
+
+      - name: Check and change working directory
+        run: |
+          echo "Current working directory: $(pwd)"
+          cd /home/runner/work/capstone-design/capstone-design/littletest2
+          echo "New working directory: $(pwd)"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: release-apk
+          path: /home/runner/work/capstone-design/capstone-design/littletest2/build/app/outputs/flutter-apk/*.apk
+
+
+  release:
+    name: Release APK
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download APK from build
+        uses: actions/download-artifact@v3
+        with:
+          name: release-apk
+
+      - name: Display structure of downloaded files
+        run: ls -R
+
+      - name: Create Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag_name="v${{ github.run_number }}"
+          name="Release $tag_name"
+          
+          # Create a release
+          gh release create "$tag_name" \
+            --title "$name" \
+            --notes "This is the release $tag_name" \
+            --draft
+          # Upload the APK file
+          gh release upload "$tag_name" app-release.apk
+          # Publish the release
+          gh release edit "$tag_name" --draft=false
+      - name: Check Release URL
+        run: |
+          echo "Release URL: https://github.com/${{ github.repository }}/releases/tag/v${{ github.run_number }}"
+
+
+  # release:
+  #   name: Release APK
+  #   needs: build
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Download APK from build
+  #       uses: actions/download-artifact@v3
+  #       with:
+  #         name: release-apk
+
+  #     - name: Create Release
+  #       id: create_release
+  #       uses: softprops/action-gh-release@v1
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #       with:
+  #         files: app-release.apk
+  #         tag_name: v${{ github.run_number }}
+  #         name: Release v${{ github.run_number }}
+  #         draft: false
+  #         prerelease: false
+  #         generate_release_notes: false
