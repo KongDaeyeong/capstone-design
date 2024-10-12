@@ -16,10 +16,12 @@ jobs:
           flutter-version: '3.24.0'
           channel: 'stable'
 
-      - name: Show current directory and files
-        run: |
-          pwd
-          ls -R
+      - name: Check working directory
+        run: pwd
+      - name: List directory contents
+        run: ls -la
+      - name: Check pubspec.yaml
+        run: ls pubspec.yaml
 
       - name: Get dependencies
         run: flutter pub get
