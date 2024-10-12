@@ -32,8 +32,10 @@ jobs:
         working-directory: littletest2
 
       - name: Build APK
-        run: flutter build apk --release
-        working-directory: littletest2
+        run: |
+          echo "Current working directory: $(pwd)"
+          flutter build apk --release
+          working-directory: littletest2
 
       - name: Check and change working directory
         run: |
