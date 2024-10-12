@@ -16,24 +16,28 @@ jobs:
           flutter-version: '3.24.0'
           channel: 'stable'
 
+      - name: Change to project directory
+        run: cd littletest2
       - name: Check working directory
         run: pwd
+        working-directory: littletest2
       - name: List directory contents
-        run: cd littletest2
+        run: ls -la
+        working-directory: littletest2
       - name: Check pubspec.yaml
         run: ls pubspec.yaml
-
+        working-directory: littletest2
       - name: Get dependencies
         run: flutter pub get
-        working-directory: .  # 프로젝트 루트 디렉토리 지정
+        working-directory: littletest2
 
       - name: Run tests
         run: flutter test
-        working-directory: .  # 프로젝트 루트 디렉토리 지정
+        working-directory: littletest2
 
       - name: Build APK
         run: flutter build apk --release
-        working-directory: .  # 프로젝트 루트 디렉토리 지정
+        working-directory: littletest2
 
       - name: Upload APK
         uses: actions/upload-artifact@v3
