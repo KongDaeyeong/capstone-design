@@ -40,14 +40,14 @@ jobs:
       - name: Check and change working directory
         run: |
           echo "Current working directory: $(pwd)"
-          cd build/app/outputs/flutter-apk
+          cd /home/runner/work/capstone-design/capstone-design/littletest2
           echo "New working directory: $(pwd)"
 
       - name: Upload APK
         uses: actions/upload-artifact@v3
         with:
           name: release-apk
-          path: build/app/outputs/flutter-apk/*.apk
+          path: /home/runner/work/capstone-design/capstone-design/littletest2/build/app/outputs/flutter-apk/*.apk
 
   release:
     name: Release APK
