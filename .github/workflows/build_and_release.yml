@@ -52,6 +52,7 @@ jobs:
           name: release-apk
           path: /home/runner/work/capstone-design/capstone-design/littletest2/build/app/outputs/flutter-apk/*.apk
 
+
   release:
     name: Release APK
     needs: build
@@ -62,15 +63,49 @@ jobs:
         with:
           name: release-apk
 
+      - name: Display structure of downloaded files
+        run: ls -R
+
       - name: Create Release
-        id: create_release
-        uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          files: app-release.apk
-          tag_name: v${{ github.run_number }}
-          name: Release v${{ github.run_number }}
-          draft: false
-          prerelease: false
-          generate_release_notes: false
+        run: |
+          tag_name="v${{ github.run_number }}"
+          name="Release $tag_name"
+          
+          # Create a release
+          gh release create "$tag_name" \
+            --title "$name" \
+            --notes "This is the release $tag_name" \
+            --draft
+          # Upload the APK file
+          gh release upload "$tag_name" app-release.apk
+          # Publish the release
+          gh release edit "$tag_name" --draft=false
+      - name: Check Release URL
+        run: |
+          echo "Release URL: https://github.com/${{ github.repository }}/releases/tag/v${{ github.run_number }}"
+
+
+  # release:
+  #   name: Release APK
+  #   needs: build
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Download APK from build
+  #       uses: actions/download-artifact@v3
+  #       with:
+  #         name: release-apk
+
+  #     - name: Create Release
+  #       id: create_release
+  #       uses: softprops/action-gh-release@v1
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #       with:
+  #         files: app-release.apk
+  #         tag_name: v${{ github.run_number }}
+  #         name: Release v${{ github.run_number }}
+  #         draft: false
+  #         prerelease: false
+  #         generate_release_notes: false
