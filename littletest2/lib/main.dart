@@ -12,6 +12,9 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 
 import 'package:fl_chart/fl_chart.dart';
+import 'dart:math' as math;
+import 'dart:math';
+import 'dart:ui' as ui;
 
 // DB 관련 코드
 class DatabaseHelper {
@@ -741,115 +744,200 @@ class LogPage extends StatefulWidget {
 }
 
 class _LogPageState extends State<LogPage> {
-  DateTime _startTime = DateTime.now();
+  bool _showCalendar = false;
+  DateTime _selectedDate = DateTime.now();
+  CalendarFormat _calendarFormat = CalendarFormat.month;
+
+  // Store data for morning (00:00 - 11:59) and afternoon (12:00 - 23:59)
+  Map<String, List<PostureTimeSlot>> morningData = {};
+  Map<String, List<PostureTimeSlot>> afternoonData = {};
 
   @override
   void initState() {
     super.initState();
-    _startTime = DateTime(_startTime.year, _startTime.month, _startTime.day,
-        _startTime.hour, (_startTime.minute ~/ 5) * 5);
+    Future.microtask(() {
+      Provider.of<PostureLogManager>(context, listen: false).loadLogsByDate(_selectedDate);
+      _processLogs();
+    });
+  }
+
+  void _processLogs() {
+    final logs = Provider.of<PostureLogManager>(context, listen: false).logs;
+    morningData.clear();
+    afternoonData.clear();
+
+    for (var log in logs) {
+      final startTime = log.timestamp.subtract(log.duration);  // 시작 시간 계산
+      final endTime = log.timestamp;  // 종료 시간 (기존의 timestamp)
+      final isAfternoon = startTime.hour >= 12;
+      final targetData = isAfternoon ? afternoonData : morningData;
+
+      if (!targetData.containsKey(log.fromDirection)) {
+        targetData[log.fromDirection] = [];
+      }
+
+      targetData[log.fromDirection]!.add(PostureTimeSlot(
+        start: startTime,
+        end: endTime,
+      ));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<PostureLogManager>(context, listen: false).loadLogsByDate(_selectedDate);
+      _processLogs();
+    });
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('log'),
+        title: const Text('자세 변경 이력'),
+        actions: [
+          IconButton(
+            icon: Icon(_showCalendar ? Icons.list : Icons.calendar_today),
+            onPressed: () {
+              setState(() {
+                _showCalendar = !_showCalendar;
+              });
+            },
+          ),
+        ],
       ),
-      body: SingleChildScrollView(  // 스크롤 가능하게 만듦
-        child: Column(
-          children: [
-            Text('시작 시간: ${DateFormat('yyyy-MM-dd HH:mm').format(_startTime)}',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-
-            Consumer<PostureLogManager>(
-              builder: (context, logManager, child) {
-                print('로그 개수: ${logManager.logs.length}'); // 디버깅용 출력
-                return Column(
-                  children: [
-                    Text('낮 시간 그래프 (5분)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    _buildPieChart(logManager.logs, isDayTime: true),
-                    Text('밤 시간 그래프 (5분)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    _buildPieChart(logManager.logs, isDayTime: false),
-                    // 그래프와 로그 사이의 여백 추가
-                    SizedBox(height: 20),
-                    Container(
-                      height: 400, // 로그를 위한 고정된 높이
-                      child: ListView.builder(
+      body: Column(
+        children: [
+          if (_showCalendar) _buildCalendar(),
+          Text(
+            '선택된 날짜: ${DateFormat('yyyy-MM-dd').format(_selectedDate)}',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Consumer<PostureLogManager>(
+                builder: (context, logManager, child) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('오전 그래프 (00:00 - 11:59)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      buildClockChart(morningData, isMorning: true),
+                      Text('오후 그래프 (12:00 - 23:59)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      buildClockChart(afternoonData, isMorning: false),
+                      ListView.builder(
+                        shrinkWrap: true,
+                        physics: NeverScrollableScrollPhysics(),
                         itemCount: logManager.logs.length,
                         itemBuilder: (context, index) {
                           final log = logManager.logs[index];
                           return ListTile(
                             title: Text('${log.fromDirection} → ${log.toDirection}'),
-                            subtitle: Text('Duration: ${formatDuration(log.duration)}'),
+                            subtitle: Text('유지 시간: ${formatDuration(log.duration)}'),
                             trailing: Text(DateFormat('HH:mm:ss').format(log.timestamp)),
                           );
                         },
                       ),
-                    ),
-                  ],
-                );
-              },
+                    ],
+                  );
+                },
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildPieChart(List<PostureLogEntry> logs, {required bool isDayTime}) {
-    final DateTime startTime = isDayTime ? _startTime : _startTime.add(Duration(minutes: 5));
-    final DateTime endTime = startTime.add(Duration(minutes: 5));
-
-
-    final Map<String, double> postureDurations = {
-      'front': 0.0,
-      'back': 0.0,
-      'left': 0.0,
-      'right': 0.0,
-    };
-
-
-
-
+  Widget buildClockChart(Map<String, List<PostureTimeSlot>> data, {required bool isMorning}) {
     List<PieChartSectionData> sections = [];
-    postureDurations.forEach((direction, duration) {
-      if (duration > 0) {
+    final startHour = isMorning ? 0 : 12;
+    final endHour = isMorning ? 12 : 24;
+
+
+    for (int hour = startHour; hour < endHour; hour++) {
+      for (int minute = 0; minute < 60; minute++) {
+        final time = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day, hour, minute);
+        String? posture = _getPostureAtTime(data, time);
+
         sections.add(PieChartSectionData(
-          color: _getPostureColor(direction),
-          value: duration,
-          title: '$direction\n${duration.toStringAsFixed(1)}s',
-          radius: 70, // 그래프 크기 조정
-          titleStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+          color: _getPostureColor(posture),
+          value: 1,
+          title: '',
+          radius: 130,
+          showTitle: false,
         ));
       }
-    });
-
-    if (sections.isEmpty) {
-      return Center(child: Text('이 시간대의 데이터가 없습니다'));
     }
 
     return Container(
-      height: 200,
+      height: 400,
+      width: 400,
       padding: EdgeInsets.all(16),
-      child: PieChart(
-        PieChartData(
-          sections: sections,
-          centerSpaceRadius: 30, // 중심 공간 크기 조정
-          sectionsSpace: 2,
-          pieTouchData: PieTouchData(touchCallback: (_, __) {}),
-        ),
+      child: Stack(
+        children: [
+          PieChart(
+            PieChartData(
+              sections: sections,
+              centerSpaceRadius: 0,
+              sectionsSpace: 0,
+              startDegreeOffset: -90,
+            ),
+          ),
+          Positioned.fill(
+            child: CustomPaint(
+              painter: ClockFacePainter(isMorning: isMorning),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Color _getPostureColor(String direction) {
+  String? _getPostureAtTime(Map<String, List<PostureTimeSlot>> data, DateTime time) {
+    for (var entry in data.entries) {
+      for (var slot in entry.value) {
+        if (time.isAfter(slot.start) && time.isBefore(slot.end)) {
+          return entry.key;
+        }
+      }
+    }
+    return null;
+  }
+
+  Widget _buildCalendar() {
+    return TableCalendar(
+      firstDay: DateTime.utc(2023, 1, 1),
+      lastDay: DateTime.utc(2030, 12, 31),
+      focusedDay: _selectedDate,
+      calendarFormat: _calendarFormat,
+      selectedDayPredicate: (day) {
+        return isSameDay(_selectedDate, day);
+      },
+      onDaySelected: (selectedDay, focusedDay) {
+        setState(() {
+          _selectedDate = selectedDay;
+          Provider.of<PostureLogManager>(context, listen: false).loadLogsByDate(_selectedDate);
+          _processLogs();
+        });
+      },
+      onFormatChanged: (format) {
+        setState(() {
+          _calendarFormat = format;
+        });
+      },
+    );
+  }
+
+  Color _getPostureColor(String? direction) {
     switch (direction) {
-      case 'front': return Colors.green;
-      case 'back': return Colors.red;
-      case 'left': return Colors.blue;
-      case 'right': return Colors.orange;
-      default: return Colors.grey;
+      case 'front':
+        return Colors.green;
+      case 'back':
+        return Colors.red;
+      case 'left':
+        return Colors.blue;
+      case 'right':
+        return Colors.orange;
+      default:
+        return Colors.white; // For unmeasured time
     }
   }
 }
@@ -860,3 +948,64 @@ String formatDuration(Duration duration) {
   String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
   return '${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds';
 }
+
+class PostureTimeSlot {
+  final DateTime start;
+  final DateTime end;
+
+  PostureTimeSlot({required this.start, required this.end});
+  Duration get duration => end.difference(start);
+}
+
+class ClockFacePainter extends CustomPainter {
+  final bool isMorning;
+
+  ClockFacePainter({required this.isMorning});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+    final paint = Paint()
+      ..color = Colors.black
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+
+    // Draw circle
+    canvas.drawCircle(center, radius, paint);
+
+    // Draw hour marks
+    for (int i = 0; i < 12; i++) {
+      final angle = (i * 30 - 90) * (pi / 180);
+      final hourMarkStart = Offset(
+        center.dx + cos(angle) * (radius - 10),
+        center.dy + sin(angle) * (radius - 10),
+      );
+      final hourMarkEnd = Offset(
+        center.dx + cos(angle) * radius,
+        center.dy + sin(angle) * radius,
+      );
+      canvas.drawLine(hourMarkStart, hourMarkEnd, paint);
+
+      // Draw hour numbers
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: '${isMorning ? i : i + 12}',
+          style: TextStyle(color: Colors.black, fontSize: 16),
+        ),
+        textDirection: ui.TextDirection.ltr,
+      );
+      textPainter.layout();
+      final textCenter = Offset(
+        center.dx + cos(angle) * (radius - 30) - textPainter.width / 2,
+        center.dy + sin(angle) * (radius - 30) - textPainter.height / 2,
+      );
+      textPainter.paint(canvas, textCenter);
+    }
+  }
+
+  @override
+  bool shouldRepaint(CustomPainter oldDelegate) => false;
+}
+
+
