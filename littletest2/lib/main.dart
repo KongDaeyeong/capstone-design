@@ -21,6 +21,37 @@ import 'package:intl/intl.dart';
 import 'auth/services/auth_service.dart';
 import 'auth/screens/login_page.dart';
 
+//aws api 호출
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
+Future<void> sendLogToAPI(PostureLogEntry log) async {
+  final url = 'https://eax80xae1d.execute-api.ap-northeast-2.amazonaws.com/proc/posturelogs';
+  try {
+    final response = await http.post(
+      Uri.parse(url),
+      headers: <String, String>{
+        'Content-Type': 'application/json; charset=UTF-8',
+        'Origin': 'http://localhost', // Replace with your app's origin
+      },
+      body: jsonEncode(<String, dynamic>{
+        'id': log.id,
+        'timestamp': log.timestamp.toIso8601String(),
+        'direction': log.toDirection,
+        'duration': log.duration.inSeconds,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      print('Log sent successfully');
+    } else {
+      print('Failed to send log. Status code: ${response.statusCode}');
+      print('Response body: ${response.body}');
+    }
+  } catch (e) {
+    print('Error sending log: $e');
+  }
+}
 // DB 관련 코드
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -56,6 +87,7 @@ class DatabaseHelper {
   Future<int> insertLog(PostureLogEntry log) async {
     final db = await database;
     return await db.insert('posture_logs', {
+      'id': log.id,
       'timestamp': log.timestamp.toIso8601String(),
       'fromDirection': log.fromDirection,
       'toDirection': log.toDirection,
@@ -81,6 +113,7 @@ class DatabaseHelper {
         fromDirection: maps[i]['fromDirection'] as String,
         toDirection: maps[i]['toDirection'] as String,
         duration: Duration(seconds: maps[i]['duration'] as int),
+        id: maps[i]['id'].toString(),
       );
     });
   }
@@ -90,12 +123,14 @@ final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
 FlutterLocalNotificationsPlugin();
 
 class PostureLogEntry {
+  final String id;
   final DateTime timestamp;
   final String fromDirection;
   final String toDirection;
   final Duration duration;
 
   PostureLogEntry({
+    required this.id,
     required this.timestamp,
     required this.fromDirection,
     required this.toDirection,
@@ -105,6 +140,14 @@ class PostureLogEntry {
 
 class PostureLogManager extends ChangeNotifier {
   List<PostureLogEntry> _logs = [];
+  List<PostureLogEntry> _tempLogs = [];
+  //dyDB
+  Future<void> addLog(PostureLogEntry entry) async {
+    await _dbHelper.insertLog(entry);
+    _logs.add(entry);
+    _tempLogs.add(entry); // 임시 리스트에도 추가
+    notifyListeners();
+  }
   // DB
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
 
@@ -146,12 +189,6 @@ class PostureLogManager extends ChangeNotifier {
     }
   }
 
-  Future<void> addLog(PostureLogEntry entry) async {
-    await _dbHelper.insertLog(entry);
-    _logs.add(entry);
-    notifyListeners();
-  }
-
   Future<void> loadLogsByDate(DateTime date) async {
     _logs = await _dbHelper.getLogsByDate(date);
     notifyListeners();
@@ -159,6 +196,15 @@ class PostureLogManager extends ChangeNotifier {
 
   void clearLogs() {
     _logs.clear();
+    notifyListeners();
+  }
+
+  // AWS DynamoDB로 로그 전송
+  Future<void> sendLogsToDynamoDB() async {
+    for (var log in _tempLogs) {
+      await sendLogToAPI(log);
+    }
+    _tempLogs.clear(); // 전송 후 임시 로그 클리어
     notifyListeners();
   }
 }
@@ -670,6 +716,9 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
   bool isConnected = false;
   DateTime lastDataReceived = DateTime.now();
 
+  //임시 DB
+  List<PostureLogEntry> _tempLogs = [];
+
   late AnimationController _animationController;
   late Animation<double> _animation;
 
@@ -712,14 +761,19 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
   }
 
   void checkPostureDuration() {
-    if (currentDirectionStopwatch.elapsed >= Duration(seconds: 10)) {
+    bool _notificationSent = false;
+    DateTime _lastNotificationTime = DateTime.now();
+    if (currentDirectionStopwatch.elapsed >= Duration(seconds: 7200)) {
       showNotification();
       setState(() {
         showAlert = true;
+        _notificationSent = true;
+        _lastNotificationTime = DateTime.now();
       });
     } else {
       setState(() {
         showAlert = false;
+        _notificationSent = false;
       });
     }
   }
@@ -903,9 +957,24 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
         potentialDirectionStopwatch.reset();
         potentialDirectionStopwatch.start();
       } else if (potentialDirectionStopwatch.elapsed >= Duration(seconds: 5) || !isInitialized) {
+        _tempLogs.add(PostureLogEntry(
+            timestamp: DateTime.now(),
+            fromDirection: currentDirection,
+            toDirection: newDirection,
+            duration: currentDirectionStopwatch.elapsed,
+            id: '',
+        ));
         // If the potential direction has been maintained for 5 seconds, update the direction
         final logManager = Provider.of<PostureLogManager>(context, listen: false);
+        final entry = PostureLogEntry(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),  // 고유 ID 생성
+          timestamp: DateTime.now(),
+          fromDirection: currentDirection,
+          toDirection: newDirection,
+          duration: currentDirectionStopwatch.elapsed,
+        );
         logManager.addLog(PostureLogEntry(
+          id: DateTime.now().millisecondsSinceEpoch.toString(), // 고유 ID 생성
           timestamp: DateTime.now(),
           fromDirection: currentDirection,
           toDirection: newDirection,
@@ -934,6 +1003,26 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
       potentialNewDirection = '';
       potentialDirectionStopwatch.reset();
     }
+  }
+
+  // 데이터 전송 함수
+  Future<void> sendLogsToServer() async {
+    final logManager = Provider.of<PostureLogManager>(context, listen: false);
+
+    for (var log in _tempLogs) {
+      await logManager.addLog(log);
+    }
+
+    // 여기에 API를 통한 서버 전송 로직 추가
+    // 예: await apiService.sendLogs(_tempLogs);
+
+    setState(() {
+      _tempLogs.clear(); // 전송 후 임시 로그 클리어
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('로그가 성공적으로 전송되었습니다.')),
+    );
   }
 
   void updatePostureIndex(String newDirection) {
@@ -984,6 +1073,16 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
         title: Text('자세 판별'),
         elevation: 0,
         actions: [
+          IconButton(
+            icon: Icon(Icons.send),
+            onPressed: () async {
+              final logManager = Provider.of<PostureLogManager>(context, listen: false);
+              await logManager.sendLogsToDynamoDB();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('로그가 성공적으로 전송되었습니다.')),
+              );
+            },
+          ),
           IconButton(
             icon: Icon(showChart ? Icons.info : Icons.bar_chart),
             onPressed: () {
