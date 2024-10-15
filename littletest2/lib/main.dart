@@ -37,7 +37,8 @@ Future<void> sendLogToAPI(PostureLogEntry log) async {
       body: jsonEncode(<String, dynamic>{
         'id': log.id,
         'timestamp': log.timestamp.toIso8601String(),
-        'direction': log.toDirection,
+        'fromDirection': log.fromDirection,
+        'todirection': log.toDirection,
         'duration': log.duration.inSeconds,
       }),
     );
@@ -145,7 +146,7 @@ class PostureLogManager extends ChangeNotifier {
   Future<void> addLog(PostureLogEntry entry) async {
     await _dbHelper.insertLog(entry);
     _logs.add(entry);
-    _tempLogs.add(entry); // 임시 리스트에도 추가
+    _tempLogs.add(entry);
     notifyListeners();
   }
   // DB
@@ -199,12 +200,12 @@ class PostureLogManager extends ChangeNotifier {
     notifyListeners();
   }
 
-  // AWS DynamoDB로 로그 전송
+  // 새로운 메서드: 임시 로그를 서버로 전송
   Future<void> sendLogsToDynamoDB() async {
     for (var log in _tempLogs) {
       await sendLogToAPI(log);
     }
-    _tempLogs.clear(); // 전송 후 임시 로그 클리어
+    _tempLogs.clear();
     notifyListeners();
   }
 }
@@ -957,29 +958,16 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
         potentialDirectionStopwatch.reset();
         potentialDirectionStopwatch.start();
       } else if (potentialDirectionStopwatch.elapsed >= Duration(seconds: 5) || !isInitialized) {
-        _tempLogs.add(PostureLogEntry(
-            timestamp: DateTime.now(),
-            fromDirection: currentDirection,
-            toDirection: newDirection,
-            duration: currentDirectionStopwatch.elapsed,
-            id: '',
-        ));
         // If the potential direction has been maintained for 5 seconds, update the direction
         final logManager = Provider.of<PostureLogManager>(context, listen: false);
         final entry = PostureLogEntry(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),  // 고유 ID 생성
-          timestamp: DateTime.now(),
-          fromDirection: currentDirection,
-          toDirection: newDirection,
-          duration: currentDirectionStopwatch.elapsed,
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            timestamp: DateTime.now(),
+            fromDirection: currentDirection,
+            toDirection: newDirection,
+            duration: currentDirectionStopwatch.elapsed
         );
-        logManager.addLog(PostureLogEntry(
-          id: DateTime.now().millisecondsSinceEpoch.toString(), // 고유 ID 생성
-          timestamp: DateTime.now(),
-          fromDirection: currentDirection,
-          toDirection: newDirection,
-          duration: currentDirectionStopwatch.elapsed,
-        ));
+        logManager.addLog(entry);
 
         if (newDirection != nextRecommendedPosture) {
           showWarningDialog(newDirection);
