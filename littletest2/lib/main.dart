@@ -1235,7 +1235,7 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
     final postureDurations = logManager.postureDurations;
 
     return Container(
-      height: MediaQuery.of(context).size.height * 0.7, // 화면 높이의 70%로 설정
+      height: MediaQuery.of(context).size.height * 0.7,
       padding: EdgeInsets.all(16),
       child: BarChart(
         BarChartData(
@@ -1272,20 +1272,33 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
               sideTitles: SideTitles(
                 showTitles: true,
                 getTitlesWidget: (value, meta) {
+                  String text;
                   switch (value.toInt()) {
                     case 0:
-                      return Text('Supine');
+                      text = 'Supine';
+                      break;
                     case 1:
-                      return Text('Left lateral');
+                      text = 'Left\nlateral';
+                      break;
                     case 2:
-                      return Text('Right lateral');
+                      text = 'Right\nlateral';
+                      break;
                     case 3:
-                      return Text('Prone');
+                      text = 'Prone';
+                      break;
                     default:
-                      return Text('');
+                      text = '';
                   }
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: Text(
+                      text,
+                      style: TextStyle(fontSize: 10),
+                      textAlign: TextAlign.center,
+                    ),
+                  );
                 },
-                reservedSize: 30,
+                reservedSize: 40,
               ),
             ),
             leftTitles: AxisTitles(
@@ -1299,6 +1312,11 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
             ),
             topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
             rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          ),
+          gridData: FlGridData(
+            drawVerticalLine: false,  // 세로 격자선 제거
+            drawHorizontalLine: true, // 가로 격자선 유지
+            horizontalInterval: null, // 자동 간격 설정
           ),
           borderData: FlBorderData(show: false),
           barGroups: [
