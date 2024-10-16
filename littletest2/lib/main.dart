@@ -1353,6 +1353,13 @@ class _LogPageState extends State<LogPage> {
   Map<String, List<PostureTimeSlot>> morningData = {};
   Map<String, List<PostureTimeSlot>> afternoonData = {};
 
+  final Map<String, Color> postureColors = {
+    'front': Colors.green,
+    'back': Colors.red,
+    'left': Colors.blue,
+    'right': Colors.orange,
+  };
+
   @override
   void initState() {
     super.initState();
@@ -1458,24 +1465,44 @@ class _LogPageState extends State<LogPage> {
   }
 
   Widget _buildCharts() {
-    if (_showMorning) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('오전 그래프 (00:00 - 11:59)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          buildClockChart(morningData, isMorning: true),
-        ],
-      );
-    } else {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('오후 그래프 (12:00 - 23:59)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          buildClockChart(afternoonData, isMorning: false),
-        ],
-      );
-    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _showMorning ? '오전 그래프 (00:00 - 11:59)' : '오후 그래프 (12:00 - 23:59)',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        buildClockChart(_showMorning ? morningData : afternoonData, isMorning: _showMorning),
+        SizedBox(height: 16),
+        _buildPostureLegend(),
+      ],
+    );
   }
+
+  Widget _buildPostureLegend() {
+    return Center( // 가운데 정렬을 위해 Center로 감쌈
+      child: Wrap(
+        alignment: WrapAlignment.center, // Wrap 내부 아이템들을 가운데로 정렬
+        spacing: 8,
+        runSpacing: 8,
+        children: postureColors.entries.map((entry) {
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 20,
+                height: 20,
+                color: entry.value,
+              ),
+              SizedBox(width: 4),
+              Text(entry.key),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
 
   Widget _buildLogList(PostureLogManager logManager) {
     return ListView.builder(
@@ -1492,6 +1519,8 @@ class _LogPageState extends State<LogPage> {
       },
     );
   }
+
+
 
   Widget buildClockChart(Map<String, List<PostureTimeSlot>> data, {required bool isMorning}) {
     List<PieChartSectionData> sections = [];
@@ -1574,18 +1603,7 @@ class _LogPageState extends State<LogPage> {
   }
 
   Color _getPostureColor(String? direction) {
-    switch (direction) {
-      case 'front':
-        return Colors.green;
-      case 'back':
-        return Colors.red;
-      case 'left':
-        return Colors.blue;
-      case 'right':
-        return Colors.orange;
-      default:
-        return Colors.white; // For unmeasured time
-    }
+    return postureColors[direction] ?? Colors.white; // 기본값은 흰색
   }
 }
 
