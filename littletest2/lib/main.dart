@@ -1344,8 +1344,10 @@ class LogPage extends StatefulWidget {
 
 class _LogPageState extends State<LogPage> {
   bool _showCalendar = false;
+  bool _showChart = true;  // 새로운 상태 변수
+  bool _showMorning = true;  // 새로운 상태 변수: 오전/오후 토글
   DateTime _selectedDate = DateTime.now();
-  CalendarFormat _calendarFormat = CalendarFormat.month;
+  CalendarFormat _calendarFormat = CalendarFormat.week;
 
   // Store data for morning (00:00 - 11:59) and afternoon (12:00 - 23:59)
   Map<String, List<PostureTimeSlot>> morningData = {};
@@ -1394,54 +1396,100 @@ class _LogPageState extends State<LogPage> {
         title: const Text('자세 변경 이력'),
         actions: [
           IconButton(
-            icon: Icon(_showCalendar ? Icons.list : Icons.calendar_today),
+            icon: Icon(_showCalendar ? Icons.calendar_today : Icons.calendar_today),
             onPressed: () {
               setState(() {
                 _showCalendar = !_showCalendar;
               });
             },
           ),
+          IconButton(
+            icon: Icon(_showChart ? Icons.list : Icons.pie_chart),
+            onPressed: () {
+              setState(() {
+                _showChart = !_showChart;
+              });
+            },
+          ),
+          if (_showChart)
+            IconButton(
+              icon: Icon(_showMorning ? Icons.wb_sunny : Icons.nights_stay),
+              onPressed: () {
+                setState(() {
+                  _showMorning = !_showMorning;
+                });
+              },
+            ),
         ],
       ),
       body: Column(
         children: [
           if (_showCalendar) _buildCalendar(),
-          Text(
-            '선택된 날짜: ${DateFormat('yyyy-MM-dd').format(_selectedDate)}',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
+          _buildDateDisplay(),
           Expanded(
             child: SingleChildScrollView(
               child: Consumer<PostureLogManager>(
                 builder: (context, logManager, child) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('오전 그래프 (00:00 - 11:59)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      buildClockChart(morningData, isMorning: true),
-                      Text('오후 그래프 (12:00 - 23:59)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      buildClockChart(afternoonData, isMorning: false),
-                      ListView.builder(
-                        shrinkWrap: true,
-                        physics: NeverScrollableScrollPhysics(),
-                        itemCount: logManager.logs.length,
-                        itemBuilder: (context, index) {
-                          final log = logManager.logs[index];
-                          return ListTile(
-                            title: Text('${log.fromDirection} → ${log.toDirection}'),
-                            subtitle: Text('유지 시간: ${formatDuration(log.duration)}'),
-                            trailing: Text(DateFormat('HH:mm:ss').format(log.timestamp)),
-                          );
-                        },
-                      ),
-                    ],
-                  );
+                  return _showChart ? _buildCharts() : _buildLogList(logManager);
                 },
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildDateDisplay() {
+    final now = DateTime.now();
+    final isToday = _selectedDate.year == now.year &&
+        _selectedDate.month == now.month &&
+        _selectedDate.day == now.day;
+
+    return Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: Text(
+        isToday
+            ? '오늘 날짜: ${DateFormat('yyyy-MM-dd').format(_selectedDate)}'
+            : '선택된 날짜: ${DateFormat('yyyy-MM-dd').format(_selectedDate)}',
+        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
+  Widget _buildCharts() {
+    if (_showMorning) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('오전 그래프 (00:00 - 11:59)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          buildClockChart(morningData, isMorning: true),
+        ],
+      );
+    } else {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('오후 그래프 (12:00 - 23:59)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          buildClockChart(afternoonData, isMorning: false),
+        ],
+      );
+    }
+  }
+
+  Widget _buildLogList(PostureLogManager logManager) {
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: NeverScrollableScrollPhysics(),
+      itemCount: logManager.logs.length,
+      itemBuilder: (context, index) {
+        final log = logManager.logs[index];
+        return ListTile(
+          title: Text('${log.fromDirection} → ${log.toDirection}'),
+          subtitle: Text('유지 시간: ${formatDuration(log.duration)}'),
+          trailing: Text(DateFormat('HH:mm:ss').format(log.timestamp)),
+        );
+      },
     );
   }
 
