@@ -8,6 +8,9 @@ import 'package:provider/provider.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:fl_chart/fl_chart.dart';
 
+import 'dart:math';
+import 'dart:ui' as ui;
+
 // DB와 캘린더 기능 추가..
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as path_package;
@@ -18,6 +21,38 @@ import 'package:intl/intl.dart';
 import 'auth/services/auth_service.dart';
 import 'auth/screens/login_page.dart';
 
+//aws api 호출
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
+Future<void> sendLogToAPI(PostureLogEntry log) async {
+  final url = 'https://eax80xae1d.execute-api.ap-northeast-2.amazonaws.com/proc/posturelogs';
+  try {
+    final response = await http.post(
+      Uri.parse(url),
+      headers: <String, String>{
+        'Content-Type': 'application/json; charset=UTF-8',
+        'Origin': 'http://localhost', // Replace with your app's origin
+      },
+      body: jsonEncode(<String, dynamic>{
+        'id': log.id,
+        'timestamp': log.timestamp.toIso8601String(),
+        'fromDirection': log.fromDirection,
+        'todirection': log.toDirection,
+        'duration': log.duration.inSeconds,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      print('Log sent successfully');
+    } else {
+      print('Failed to send log. Status code: ${response.statusCode}');
+      print('Response body: ${response.body}');
+    }
+  } catch (e) {
+    print('Error sending log: $e');
+  }
+}
 // DB 관련 코드
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -53,6 +88,7 @@ class DatabaseHelper {
   Future<int> insertLog(PostureLogEntry log) async {
     final db = await database;
     return await db.insert('posture_logs', {
+      'id': log.id,
       'timestamp': log.timestamp.toIso8601String(),
       'fromDirection': log.fromDirection,
       'toDirection': log.toDirection,
@@ -78,6 +114,7 @@ class DatabaseHelper {
         fromDirection: maps[i]['fromDirection'] as String,
         toDirection: maps[i]['toDirection'] as String,
         duration: Duration(seconds: maps[i]['duration'] as int),
+        id: maps[i]['id'].toString(),
       );
     });
   }
@@ -87,12 +124,14 @@ final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
 FlutterLocalNotificationsPlugin();
 
 class PostureLogEntry {
+  final String id;
   final DateTime timestamp;
   final String fromDirection;
   final String toDirection;
   final Duration duration;
 
   PostureLogEntry({
+    required this.id,
     required this.timestamp,
     required this.fromDirection,
     required this.toDirection,
@@ -102,6 +141,14 @@ class PostureLogEntry {
 
 class PostureLogManager extends ChangeNotifier {
   List<PostureLogEntry> _logs = [];
+  List<PostureLogEntry> _tempLogs = [];
+  //dyDB
+  Future<void> addLog(PostureLogEntry entry) async {
+    await _dbHelper.insertLog(entry);
+    _logs.add(entry);
+    _tempLogs.add(entry);
+    notifyListeners();
+  }
   // DB
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
 
@@ -143,12 +190,6 @@ class PostureLogManager extends ChangeNotifier {
     }
   }
 
-  Future<void> addLog(PostureLogEntry entry) async {
-    await _dbHelper.insertLog(entry);
-    _logs.add(entry);
-    notifyListeners();
-  }
-
   Future<void> loadLogsByDate(DateTime date) async {
     _logs = await _dbHelper.getLogsByDate(date);
     notifyListeners();
@@ -156,6 +197,15 @@ class PostureLogManager extends ChangeNotifier {
 
   void clearLogs() {
     _logs.clear();
+    notifyListeners();
+  }
+
+  // 새로운 메서드: 임시 로그를 서버로 전송
+  Future<void> sendLogsToDynamoDB() async {
+    for (var log in _tempLogs) {
+      await sendLogToAPI(log);
+    }
+    _tempLogs.clear();
     notifyListeners();
   }
 }
@@ -667,6 +717,9 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
   bool isConnected = false;
   DateTime lastDataReceived = DateTime.now();
 
+  //임시 DB
+  List<PostureLogEntry> _tempLogs = [];
+
   late AnimationController _animationController;
   late Animation<double> _animation;
 
@@ -709,14 +762,19 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
   }
 
   void checkPostureDuration() {
-    if (currentDirectionStopwatch.elapsed >= Duration(seconds: 10)) {
+    bool _notificationSent = false;
+    DateTime _lastNotificationTime = DateTime.now();
+    if (currentDirectionStopwatch.elapsed >= Duration(seconds: 7200)) {
       showNotification();
       setState(() {
         showAlert = true;
+        _notificationSent = true;
+        _lastNotificationTime = DateTime.now();
       });
     } else {
       setState(() {
         showAlert = false;
+        _notificationSent = false;
       });
     }
   }
@@ -902,12 +960,14 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
       } else if (potentialDirectionStopwatch.elapsed >= Duration(seconds: 5) || !isInitialized) {
         // If the potential direction has been maintained for 5 seconds, update the direction
         final logManager = Provider.of<PostureLogManager>(context, listen: false);
-        logManager.addLog(PostureLogEntry(
-          timestamp: DateTime.now(),
-          fromDirection: currentDirection,
-          toDirection: newDirection,
-          duration: currentDirectionStopwatch.elapsed,
-        ));
+        final entry = PostureLogEntry(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            timestamp: DateTime.now(),
+            fromDirection: currentDirection,
+            toDirection: newDirection,
+            duration: currentDirectionStopwatch.elapsed
+        );
+        logManager.addLog(entry);
 
         if (newDirection != nextRecommendedPosture) {
           showWarningDialog(newDirection);
@@ -931,6 +991,26 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
       potentialNewDirection = '';
       potentialDirectionStopwatch.reset();
     }
+  }
+
+  // 데이터 전송 함수
+  Future<void> sendLogsToServer() async {
+    final logManager = Provider.of<PostureLogManager>(context, listen: false);
+
+    for (var log in _tempLogs) {
+      await logManager.addLog(log);
+    }
+
+    // 여기에 API를 통한 서버 전송 로직 추가
+    // 예: await apiService.sendLogs(_tempLogs);
+
+    setState(() {
+      _tempLogs.clear(); // 전송 후 임시 로그 클리어
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('로그가 성공적으로 전송되었습니다.')),
+    );
   }
 
   void updatePostureIndex(String newDirection) {
@@ -981,6 +1061,16 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
         title: Text('자세 판별'),
         elevation: 0,
         actions: [
+          IconButton(
+            icon: Icon(Icons.send),
+            onPressed: () async {
+              final logManager = Provider.of<PostureLogManager>(context, listen: false);
+              await logManager.sendLogsToDynamoDB();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('로그가 성공적으로 전송되었습니다.')),
+              );
+            },
+          ),
           IconButton(
             icon: Icon(showChart ? Icons.info : Icons.bar_chart),
             onPressed: () {
@@ -1254,14 +1344,51 @@ class LogPage extends StatefulWidget {
 
 class _LogPageState extends State<LogPage> {
   bool _showCalendar = false;
+  bool _showChart = true;  // 새로운 상태 변수
+  bool _showMorning = true;  // 새로운 상태 변수: 오전/오후 토글
   DateTime _selectedDate = DateTime.now();
-  CalendarFormat _calendarFormat = CalendarFormat.month;
+  CalendarFormat _calendarFormat = CalendarFormat.week;
+
+  // Store data for morning (00:00 - 11:59) and afternoon (12:00 - 23:59)
+  Map<String, List<PostureTimeSlot>> morningData = {};
+  Map<String, List<PostureTimeSlot>> afternoonData = {};
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() {
+      Provider.of<PostureLogManager>(context, listen: false).loadLogsByDate(_selectedDate);
+      _processLogs();
+    });
+  }
+
+  void _processLogs() {
+    final logs = Provider.of<PostureLogManager>(context, listen: false).logs;
+    morningData.clear();
+    afternoonData.clear();
+
+    for (var log in logs) {
+      final startTime = log.timestamp.subtract(log.duration);  // 시작 시간 계산
+      final endTime = log.timestamp;  // 종료 시간 (기존의 timestamp)
+      final isAfternoon = startTime.hour >= 12;
+      final targetData = isAfternoon ? afternoonData : morningData;
+
+      if (!targetData.containsKey(log.fromDirection)) {
+        targetData[log.fromDirection] = [];
+      }
+
+      targetData[log.fromDirection]!.add(PostureTimeSlot(
+        start: startTime,
+        end: endTime,
+      ));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    // 여기서 로그를 로드합니다
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<PostureLogManager>(context, listen: false).loadLogsByDate(_selectedDate);
+      _processLogs();
     });
 
     return Scaffold(
@@ -1269,38 +1396,157 @@ class _LogPageState extends State<LogPage> {
         title: const Text('자세 변경 이력'),
         actions: [
           IconButton(
-            icon: Icon(_showCalendar ? Icons.list : Icons.calendar_today),
+            icon: Icon(_showCalendar ? Icons.calendar_today : Icons.calendar_today),
             onPressed: () {
               setState(() {
                 _showCalendar = !_showCalendar;
               });
             },
           ),
+          IconButton(
+            icon: Icon(_showChart ? Icons.list : Icons.pie_chart),
+            onPressed: () {
+              setState(() {
+                _showChart = !_showChart;
+              });
+            },
+          ),
+          if (_showChart)
+            IconButton(
+              icon: Icon(_showMorning ? Icons.wb_sunny : Icons.nights_stay),
+              onPressed: () {
+                setState(() {
+                  _showMorning = !_showMorning;
+                });
+              },
+            ),
         ],
       ),
       body: Column(
         children: [
           if (_showCalendar) _buildCalendar(),
+          _buildDateDisplay(),
           Expanded(
-            child: Consumer<PostureLogManager>(
-              builder: (context, logManager, child) {
-                return ListView.builder(
-                  itemCount: logManager.logs.length,
-                  itemBuilder: (context, index) {
-                    final log = logManager.logs[index];
-                    return ListTile(
-                      title: Text('${log.fromDirection} → ${log.toDirection}'),
-                      subtitle: Text('유지 시간: ${formatDuration(log.duration)}'),
-                      trailing: Text(DateFormat('HH:mm:ss').format(log.timestamp)),
-                    );
-                  },
-                );
-              },
+            child: SingleChildScrollView(
+              child: Consumer<PostureLogManager>(
+                builder: (context, logManager, child) {
+                  return _showChart ? _buildCharts() : _buildLogList(logManager);
+                },
+              ),
             ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildDateDisplay() {
+    final now = DateTime.now();
+    final isToday = _selectedDate.year == now.year &&
+        _selectedDate.month == now.month &&
+        _selectedDate.day == now.day;
+
+    return Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: Text(
+        isToday
+            ? '오늘 날짜: ${DateFormat('yyyy-MM-dd').format(_selectedDate)}'
+            : '선택된 날짜: ${DateFormat('yyyy-MM-dd').format(_selectedDate)}',
+        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
+  Widget _buildCharts() {
+    if (_showMorning) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('오전 그래프 (00:00 - 11:59)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          buildClockChart(morningData, isMorning: true),
+        ],
+      );
+    } else {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('오후 그래프 (12:00 - 23:59)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          buildClockChart(afternoonData, isMorning: false),
+        ],
+      );
+    }
+  }
+
+  Widget _buildLogList(PostureLogManager logManager) {
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: NeverScrollableScrollPhysics(),
+      itemCount: logManager.logs.length,
+      itemBuilder: (context, index) {
+        final log = logManager.logs[index];
+        return ListTile(
+          title: Text('${log.fromDirection} → ${log.toDirection}'),
+          subtitle: Text('유지 시간: ${formatDuration(log.duration)}'),
+          trailing: Text(DateFormat('HH:mm:ss').format(log.timestamp)),
+        );
+      },
+    );
+  }
+
+  Widget buildClockChart(Map<String, List<PostureTimeSlot>> data, {required bool isMorning}) {
+    List<PieChartSectionData> sections = [];
+    final startHour = isMorning ? 0 : 12;
+    final endHour = isMorning ? 12 : 24;
+
+
+    for (int hour = startHour; hour < endHour; hour++) {
+      for (int minute = 0; minute < 60; minute++) {
+        final time = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day, hour, minute);
+        String? posture = _getPostureAtTime(data, time);
+
+        sections.add(PieChartSectionData(
+          color: _getPostureColor(posture),
+          value: 1,
+          title: '',
+          radius: 130,
+          showTitle: false,
+        ));
+      }
+    }
+
+    return Container(
+      height: 400,
+      width: 400,
+      padding: EdgeInsets.all(16),
+      child: Stack(
+        children: [
+          PieChart(
+            PieChartData(
+              sections: sections,
+              centerSpaceRadius: 0,
+              sectionsSpace: 0,
+              startDegreeOffset: -90,
+            ),
+          ),
+          Positioned.fill(
+            child: CustomPaint(
+              painter: ClockFacePainter(isMorning: isMorning),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String? _getPostureAtTime(Map<String, List<PostureTimeSlot>> data, DateTime time) {
+    for (var entry in data.entries) {
+      for (var slot in entry.value) {
+        if (time.isAfter(slot.start) && time.isBefore(slot.end)) {
+          return entry.key;
+        }
+      }
+    }
+    return null;
   }
 
   Widget _buildCalendar() {
@@ -1315,7 +1561,8 @@ class _LogPageState extends State<LogPage> {
       onDaySelected: (selectedDay, focusedDay) {
         setState(() {
           _selectedDate = selectedDay;
-          Provider.of<PostureLogManager>(context as BuildContext, listen: false).loadLogsByDate(_selectedDate);
+          Provider.of<PostureLogManager>(context, listen: false).loadLogsByDate(_selectedDate);
+          _processLogs();
         });
       },
       onFormatChanged: (format) {
@@ -1325,6 +1572,21 @@ class _LogPageState extends State<LogPage> {
       },
     );
   }
+
+  Color _getPostureColor(String? direction) {
+    switch (direction) {
+      case 'front':
+        return Colors.green;
+      case 'back':
+        return Colors.red;
+      case 'left':
+        return Colors.blue;
+      case 'right':
+        return Colors.orange;
+      default:
+        return Colors.white; // For unmeasured time
+    }
+  }
 }
 
 String formatDuration(Duration duration) {
@@ -1332,4 +1594,63 @@ String formatDuration(Duration duration) {
   String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
   String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
   return '${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds';
+}
+
+class PostureTimeSlot {
+  final DateTime start;
+  final DateTime end;
+
+  PostureTimeSlot({required this.start, required this.end});
+  Duration get duration => end.difference(start);
+}
+
+class ClockFacePainter extends CustomPainter {
+  final bool isMorning;
+
+  ClockFacePainter({required this.isMorning});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+    final paint = Paint()
+      ..color = Colors.black
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+
+    // Draw circle
+    canvas.drawCircle(center, radius, paint);
+
+    // Draw hour marks
+    for (int i = 0; i < 12; i++) {
+      final angle = (i * 30 - 90) * (pi / 180);
+      final hourMarkStart = Offset(
+        center.dx + cos(angle) * (radius - 10),
+        center.dy + sin(angle) * (radius - 10),
+      );
+      final hourMarkEnd = Offset(
+        center.dx + cos(angle) * radius,
+        center.dy + sin(angle) * radius,
+      );
+      canvas.drawLine(hourMarkStart, hourMarkEnd, paint);
+
+      // Draw hour numbers
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: '${isMorning ? i : i + 12}',
+          style: TextStyle(color: Colors.black, fontSize: 16),
+        ),
+        textDirection: ui.TextDirection.ltr,
+      );
+      textPainter.layout();
+      final textCenter = Offset(
+        center.dx + cos(angle) * (radius - 30) - textPainter.width / 2,
+        center.dy + sin(angle) * (radius - 30) - textPainter.height / 2,
+      );
+      textPainter.paint(canvas, textCenter);
+    }
+  }
+
+  @override
+  bool shouldRepaint(CustomPainter oldDelegate) => false;
 }

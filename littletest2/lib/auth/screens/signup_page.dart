@@ -45,14 +45,14 @@ class _SignUpPageState extends State<SignUpPage> {
 
     if (password != confirmPassword) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Passwords do not match')),
+        SnackBar(content: Text('비밀번호가 일치하지 않습니다.')),
       );
       return;
     }
 
     if (!_hasUpperCase || !_hasLowerCase || !_hasDigit || !_hasSpecialChar || !_hasMinLength) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Password does not meet all requirements')),
+        SnackBar(content: Text('비밀번호가 조건을 충족하지 않습니다.')),
       );
       return;
     }
@@ -64,7 +64,7 @@ class _SignUpPageState extends State<SignUpPage> {
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Sign up failed. Please try again.')),
+        SnackBar(content: Text('가입 실패. 다시 시도해주세요.')),
       );
     }
   }
@@ -95,7 +95,7 @@ class _SignUpPageState extends State<SignUpPage> {
                   ),
                   SizedBox(height: 48),
                   Text(
-                    'Create Account',
+                    '계정 생성',
                     style: TextStyle(
                       fontSize: 32,
                       fontWeight: FontWeight.bold,
@@ -106,7 +106,7 @@ class _SignUpPageState extends State<SignUpPage> {
                   SizedBox(height: 48),
                   AuthTextField(
                     controller: _emailController,
-                    hintText: 'Email',
+                    hintText: '이메일',
                     prefixIcon: Icons.email_outlined,
                     keyboardType: TextInputType.emailAddress,
                   ),
@@ -116,7 +116,7 @@ class _SignUpPageState extends State<SignUpPage> {
                     children: [
                       AuthTextField(
                         controller: _passwordController,
-                        hintText: 'Password',
+                        hintText: '비밀번호',
                         prefixIcon: Icons.lock_outline,
                         obscureText: _obscurePassword,
                       ),
@@ -139,7 +139,7 @@ class _SignUpPageState extends State<SignUpPage> {
                     children: [
                       AuthTextField(
                         controller: _confirmPasswordController,
-                        hintText: 'Confirm Password',
+                        hintText: '비밀번호 재입력',
                         prefixIcon: Icons.lock_outline,
                         obscureText: _obscureConfirmPassword,
                       ),
@@ -161,7 +161,7 @@ class _SignUpPageState extends State<SignUpPage> {
                   SizedBox(height: 24),
                   ElevatedButton(
                     onPressed: _signUp,
-                    child: Text('Sign Up'),
+                    child: Text('가입하기'),
                     style: ElevatedButton.styleFrom(
                       foregroundColor: Colors.blue.shade700,
                       backgroundColor: Colors.white,
@@ -181,7 +181,7 @@ class _SignUpPageState extends State<SignUpPage> {
                       Navigator.of(context).pop();
                     },
                     child: Text(
-                      'Already have an account? Sign In',
+                      '계정이 이미 있으신가요? 로그인하세요!',
                       style: TextStyle(color: Colors.white),
                     ),
                   ),
@@ -199,15 +199,15 @@ class _SignUpPageState extends State<SignUpPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Password must:',
+          '비밀번호 요구사항:',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         SizedBox(height: 8),
-        _buildRequirement('Contain at least one uppercase letter', _hasUpperCase),
-        _buildRequirement('Contain at least one lowercase letter', _hasLowerCase),
-        _buildRequirement('Contain at least one digit', _hasDigit),
-        _buildRequirement('Contain at least one special character', _hasSpecialChar),
-        _buildRequirement('Be at least 8 characters long', _hasMinLength),
+        _buildRequirement('적어도 하나의 대문자를 포함해야 합니다', _hasUpperCase),
+        _buildRequirement('적어도 하나의 소문자를 포함해야 합니다', _hasLowerCase),
+        _buildRequirement('적어도 하나의 숫자를 포함해야 합니다', _hasDigit),
+        _buildRequirement('적어도 하나의 특수 문자를 포함해야 합니다', _hasSpecialChar),
+        _buildRequirement('최소 8글자 이상이어야 합니다', _hasMinLength),
       ],
     );
   }
