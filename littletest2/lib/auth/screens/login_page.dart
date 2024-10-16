@@ -24,7 +24,7 @@ class _LoginPageState extends State<LoginPage> {
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Login failed. Please try again.')),
+        SnackBar(content: Text('로그인에 실패했습니다. 다시 시도해주세요')),
       );
     }
   }
@@ -55,7 +55,7 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   SizedBox(height: 48),
                   Text(
-                    'Welcome Back',
+                    '환영합니다!',
                     style: TextStyle(
                       fontSize: 32,
                       fontWeight: FontWeight.bold,
@@ -66,14 +66,14 @@ class _LoginPageState extends State<LoginPage> {
                   SizedBox(height: 48),
                   _buildTextField(
                     controller: _emailController,
-                    hintText: 'Email',
+                    hintText: '이메일',
                     prefixIcon: Icons.email_outlined,
                     keyboardType: TextInputType.emailAddress,
                   ),
                   SizedBox(height: 16),
                   _buildTextField(
                     controller: _passwordController,
-                    hintText: 'Password',
+                    hintText: '비밀번호',
                     prefixIcon: Icons.lock_outline,
                     obscureText: _obscurePassword,
                     suffixIcon: IconButton(
@@ -91,7 +91,7 @@ class _LoginPageState extends State<LoginPage> {
                   SizedBox(height: 24),
                   ElevatedButton(
                     onPressed: _signIn,
-                    child: Text('Sign In'),
+                    child: Text('로그인'),
                     style: ElevatedButton.styleFrom(
                       foregroundColor: Colors.blue.shade700, backgroundColor: Colors.white,
                       padding: EdgeInsets.symmetric(vertical: 16),
@@ -112,7 +112,7 @@ class _LoginPageState extends State<LoginPage> {
                       );
                     },
                     child: Text(
-                      'Don\'t have an account? Sign Up',
+                      '계정이 없으신가요? 계정을 만드세요!',
                       style: TextStyle(color: Colors.white),
                     ),
                   ),

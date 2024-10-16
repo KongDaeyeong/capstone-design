@@ -31,7 +31,7 @@ class _ConfirmSignUpPageState extends State<ConfirmSignUpPage> {
 
     if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Sign up confirmed. Please log in.')),
+        SnackBar(content: Text('인증에 성공했습니다. 로그인해주세요!')),
       );
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => LoginPage()),
@@ -39,7 +39,7 @@ class _ConfirmSignUpPageState extends State<ConfirmSignUpPage> {
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Confirmation failed. Please try again.')),
+        SnackBar(content: Text('인증에 실패했습니다. 다시 시도해주세요!')),
       );
     }
   }
@@ -70,7 +70,7 @@ class _ConfirmSignUpPageState extends State<ConfirmSignUpPage> {
                   ),
                   SizedBox(height: 48),
                   Text(
-                    'Confirm Sign Up',
+                    '인증 확인',
                     style: TextStyle(
                       fontSize: 32,
                       fontWeight: FontWeight.bold,
@@ -80,7 +80,7 @@ class _ConfirmSignUpPageState extends State<ConfirmSignUpPage> {
                   ),
                   SizedBox(height: 16),
                   Text(
-                    'Please enter the confirmation code sent to ${widget.email}',
+                    '이메일 ${widget.email}로 전송된 코드를 입력해 주세요.',
                     style: TextStyle(
                       fontSize: 16,
                       color: Colors.white,
@@ -96,7 +96,7 @@ class _ConfirmSignUpPageState extends State<ConfirmSignUpPage> {
                     child: TextField(
                       controller: _confirmationCodeController,
                       decoration: InputDecoration(
-                        hintText: 'Confirmation Code',
+                        hintText: '인증 코드',
                         hintStyle: TextStyle(color: Colors.white70),
                         prefixIcon: Icon(Icons.confirmation_number_outlined, color: Colors.white70),
                         border: InputBorder.none,
@@ -111,7 +111,7 @@ class _ConfirmSignUpPageState extends State<ConfirmSignUpPage> {
                     onPressed: _isLoading ? null : _confirmSignUp,
                     child: _isLoading
                         ? CircularProgressIndicator(color: Colors.blue.shade700)
-                        : Text('Confirm Sign Up'),
+                        : Text('인증 확인'),
                     style: ElevatedButton.styleFrom(
                       foregroundColor: Colors.blue.shade700,
                       backgroundColor: Colors.white,
@@ -131,7 +131,7 @@ class _ConfirmSignUpPageState extends State<ConfirmSignUpPage> {
                       Navigator.of(context).pop();
                     },
                     child: Text(
-                      'Back to Sign In',
+                      '로그인 화면으로 돌아가기',
                       style: TextStyle(color: Colors.white),
                     ),
                   ),
