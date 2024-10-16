@@ -153,10 +153,10 @@ class PostureLogManager extends ChangeNotifier {
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
 
   Map<String, Duration> _postureDurations = {
-    'front': Duration.zero,
-    'left': Duration.zero,
-    'right': Duration.zero,
-    'back': Duration.zero,
+    'Supine': Duration.zero,
+    'Left lateral': Duration.zero,
+    'Right lateral': Duration.zero,
+    'Prone': Duration.zero,
   };
   bool _isConnected = false;
 
@@ -167,10 +167,10 @@ class PostureLogManager extends ChangeNotifier {
 
   void resetPostureDurations() {
     _postureDurations = {
-      'front': Duration.zero,
-      'left': Duration.zero,
-      'right': Duration.zero,
-      'back': Duration.zero,
+      'Supine': Duration.zero,
+      'Left lateral': Duration.zero,
+      'Right lateral': Duration.zero,
+      'Prone': Duration.zero,
     };
     notifyListeners();
   }
@@ -184,7 +184,7 @@ class PostureLogManager extends ChangeNotifier {
   }
 
   void updatePostureDuration(String posture, Duration duration) {
-    if ((_isConnected && (posture != 'neutral')) && (posture != '초기화 중...')) {
+    if ((_isConnected && (posture != 'non-lying')) && (posture != '초기화 중...')) {
       _postureDurations[posture] = (_postureDurations[posture] ?? Duration.zero) + duration;
       notifyListeners();
     }
@@ -611,7 +611,7 @@ class _BluetoothScanPageState extends State<BluetoothScanPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('기기 검색', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('기기 검색'),
         actions: [
           IconButton(
             icon: Icon(_isScanning ? Icons.stop : Icons.search),
@@ -741,7 +741,7 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
 
 
   //자세 가이드
-  List<String> postureSequence = ['front', 'right', 'back', 'left'];
+  List<String> postureSequence = ['Supine', 'Right lateral', 'Prone', 'Left lateral'];
   int currentPostureIndex = 0;
   bool showWarning = false;
 
@@ -764,7 +764,7 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
   void checkPostureDuration() {
     bool _notificationSent = false;
     DateTime _lastNotificationTime = DateTime.now();
-    if (currentDirectionStopwatch.elapsed >= Duration(seconds: 7200)) {
+    if (currentDirectionStopwatch.elapsed >= Duration(seconds: 15)) {
       showNotification();
       setState(() {
         showAlert = true;
@@ -903,7 +903,7 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
 
         String newDirection = classifyDirection();
 
-        if (newDirection != 'neutral') {
+        if (newDirection != 'non-lying') {
           if (!isInitialized) {
             // Set initial direction
             currentDirection = newDirection;
@@ -933,21 +933,21 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
 
     if ((accZ.abs() > accX.abs()) && (accZ.abs() > accY.abs())) {
       if (accZ >= 0) {
-        return 'front';
+        return 'Supine';
       }
       else if(accZ < 0){
-        return 'back';
+        return 'Prone';
       }
     }
     else if((accX.abs() > accZ.abs()) && (accX.abs() > accY.abs())){
       if (accX >= 0) {
-        return 'right';
+        return 'Right lateral';
       }
       else if(accX < 0){
-        return 'left';
+        return 'Left lateral';
       }
     }
-    return 'neutral';
+    return 'non-lying';
   }
 
   void updateDirection(String newDirection) {
@@ -1058,7 +1058,6 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('자세 판별'),
         elevation: 0,
         actions: [
           IconButton(
@@ -1248,16 +1247,16 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
                 String postureName = '';
                 switch (group.x.toInt()) {
                   case 0:
-                    postureName = '앞';
+                    postureName = 'Supine';
                     break;
                   case 1:
-                    postureName = '왼쪽';
+                    postureName = 'Left lateral';
                     break;
                   case 2:
-                    postureName = '오른쪽';
+                    postureName = 'Right lateral';
                     break;
                   case 3:
-                    postureName = '뒤';
+                    postureName = 'Prone';
                     break;
                 }
                 return BarTooltipItem(
@@ -1275,13 +1274,13 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
                 getTitlesWidget: (value, meta) {
                   switch (value.toInt()) {
                     case 0:
-                      return Text('앞');
+                      return Text('Supine');
                     case 1:
-                      return Text('왼쪽');
+                      return Text('Left lateral');
                     case 2:
-                      return Text('오른쪽');
+                      return Text('Right lateral');
                     case 3:
-                      return Text('뒤');
+                      return Text('Prone');
                     default:
                       return Text('');
                   }
@@ -1305,19 +1304,19 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
           barGroups: [
             BarChartGroupData(
               x: 0,
-              barRods: [BarChartRodData(toY: postureDurations['front']!.inSeconds.toDouble(), color: Colors.red)],
+              barRods: [BarChartRodData(toY: postureDurations['Supine']!.inSeconds.toDouble(), color: Colors.red)],
             ),
             BarChartGroupData(
               x: 1,
-              barRods: [BarChartRodData(toY: postureDurations['left']!.inSeconds.toDouble(), color: Colors.green)],
+              barRods: [BarChartRodData(toY: postureDurations['Left lateral']!.inSeconds.toDouble(), color: Colors.green)],
             ),
             BarChartGroupData(
               x: 2,
-              barRods: [BarChartRodData(toY: postureDurations['right']!.inSeconds.toDouble(), color: Colors.blue)],
+              barRods: [BarChartRodData(toY: postureDurations['Right lateral']!.inSeconds.toDouble(), color: Colors.blue)],
             ),
             BarChartGroupData(
               x: 3,
-              barRods: [BarChartRodData(toY: postureDurations['back']!.inSeconds.toDouble(), color: Colors.yellow)],
+              barRods: [BarChartRodData(toY: postureDurations['Prone']!.inSeconds.toDouble(), color: Colors.yellow)],
             ),
           ],
         ),
@@ -1360,10 +1359,10 @@ class _LogPageState extends State<LogPage> {
   Map<String, List<PostureTimeSlot>> afternoonData = {};
 
   final Map<String, Color> postureColors = {
-    'front': Colors.green,
-    'back': Colors.red,
-    'left': Colors.blue,
-    'right': Colors.orange,
+    'Supine': Colors.green,
+    'Prone': Colors.red,
+    'Left lateral': Colors.blue,
+    'Right lateral': Colors.orange,
   };
 
   @override
@@ -1406,7 +1405,7 @@ class _LogPageState extends State<LogPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('자세 변경 이력'),
+        title: const Text('자세 변경 기록'),
         actions: [
           IconButton(
             icon: Icon(_showCalendar ? Icons.calendar_today : Icons.calendar_today),
