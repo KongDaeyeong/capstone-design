@@ -142,6 +142,8 @@ class PostureLogEntry {
 class PostureLogManager extends ChangeNotifier {
   List<PostureLogEntry> _logs = [];
   List<PostureLogEntry> _tempLogs = [];
+  DateTime? _lastSyncTime;
+  DateTime? get lastSyncTime => _lastSyncTime;
   //dyDB
   Future<void> addLog(PostureLogEntry entry) async {
     await _dbHelper.insertLog(entry);
@@ -205,6 +207,7 @@ class PostureLogManager extends ChangeNotifier {
     for (var log in _tempLogs) {
       await sendLogToAPI(log);
     }
+    _lastSyncTime = DateTime.now();
     _tempLogs.clear();
     notifyListeners();
   }
@@ -380,13 +383,13 @@ class SettingsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AuthService _authService = Provider.of<AuthService>(context);
+    final logManager = Provider.of<PostureLogManager>(context);
 
     return Scaffold(
       body: FutureBuilder<String?>(
         future: _authService.getCurrentUserEmail(),
         builder: (context, snapshot) {
           final String email = snapshot.data ?? 'Loading...';
-
           return ListView(
             children: [
               UserAccountsDrawerHeader(
@@ -400,18 +403,100 @@ class SettingsPage extends StatelessWidget {
                   color: Colors.blue,
                 ),
               ),
+              // 데이터 전송 섹션
+              ListTile(
+                leading: Icon(Icons.cloud_upload),
+                title: Text('데이터 전송'),
+                subtitle: Text(
+                    logManager.lastSyncTime != null
+                        ? '마지막 전송: ${DateFormat('yyyy-MM-dd HH:mm').format(logManager.lastSyncTime!)}'
+                        : '아직 전송된 데이터가 없습니다'
+                ),
+                onTap: () => _showDataSyncDialog(context, logManager),
+              ),
+              // 로그아웃 버튼
               ListTile(
                 leading: Icon(Icons.exit_to_app),
                 title: Text('로그아웃'),
                 onTap: () => _showLogoutDialog(context, _authService),
               ),
-              // 여기에 다른 설정 옵션들을 추가할 수 있습니다.
             ],
           );
         },
       ),
     );
   }
+}
+  // Widget build(BuildContext context) {
+  //   final AuthService _authService = Provider.of<AuthService>(context);
+  //
+  //   return Scaffold(
+  //     body: FutureBuilder<String?>(
+  //       future: _authService.getCurrentUserEmail(),
+  //       builder: (context, snapshot) {
+  //         final String email = snapshot.data ?? 'Loading...';
+  //
+  //         return ListView(
+  //           children: [
+  //             UserAccountsDrawerHeader(
+  //               accountName: Text("환영합니다!"),
+  //               accountEmail: Text(email),
+  //               currentAccountPicture: CircleAvatar(
+  //                 backgroundColor: Colors.white,
+  //                 child: Icon(Icons.person, size: 50, color: Colors.blue),
+  //               ),
+  //               decoration: BoxDecoration(
+  //                 color: Colors.blue,
+  //               ),
+  //             ),
+  //             ListTile(
+  //               leading: Icon(Icons.exit_to_app),
+  //               title: Text('로그아웃'),
+  //               onTap: () => _showLogoutDialog(context, _authService),
+  //             ),
+  //             // 여기에 다른 설정 옵션들을 추가할 수 있습니다.
+  //           ],
+  //         );
+  //       },
+  //     ),
+  //   );
+  // }
+  void _showDataSyncDialog(BuildContext context, PostureLogManager logManager) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('데이터 전송'),
+          content: Text('자세 데이터를 서버에 전송하시겠습니까?'),
+          actions: [
+            TextButton(
+              child: Text('취소'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              child: Text('전송'),
+              onPressed: () async {
+                Navigator.of(context).pop();
+                try {
+                  await logManager.sendLogsToDynamoDB();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('데이터가 성공적으로 전송되었습니다')),
+                  );
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('데이터 전송 중 오류가 발생했습니다')),
+                  );
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
 
   void _showLogoutDialog(BuildContext context, AuthService authService) {
     showDialog(
@@ -442,7 +527,7 @@ class SettingsPage extends StatelessWidget {
       },
     );
   }
-}
+
 
 class BluetoothScanPage extends StatefulWidget {
   final Function(BluetoothDevice?) onDeviceConnected;
@@ -764,7 +849,7 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
   void checkPostureDuration() {
     bool _notificationSent = false;
     DateTime _lastNotificationTime = DateTime.now();
-    if (currentDirectionStopwatch.elapsed >= Duration(seconds: 15)) {
+    if (currentDirectionStopwatch.elapsed >= Duration(seconds: 7200)) {
       showNotification();
       setState(() {
         showAlert = true;
@@ -1060,16 +1145,6 @@ class _PosturePageState extends State<PosturePage> with SingleTickerProviderStat
       appBar: AppBar(
         elevation: 0,
         actions: [
-          IconButton(
-            icon: Icon(Icons.send),
-            onPressed: () async {
-              final logManager = Provider.of<PostureLogManager>(context, listen: false);
-              await logManager.sendLogsToDynamoDB();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('로그가 성공적으로 전송되었습니다.')),
-              );
-            },
-          ),
           IconButton(
             icon: Icon(showChart ? Icons.info : Icons.bar_chart),
             onPressed: () {
@@ -1441,15 +1516,14 @@ class _LogPageState extends State<LogPage> {
               });
             },
           ),
-          if (_showChart)
-            IconButton(
-              icon: Icon(_showMorning ? Icons.wb_sunny : Icons.nights_stay),
-              onPressed: () {
-                setState(() {
-                  _showMorning = !_showMorning;
-                });
-              },
-            ),
+          IconButton(
+            icon: Icon(_showMorning ? Icons.wb_sunny : Icons.nights_stay),
+            onPressed: () {
+              setState(() {
+                _showMorning = !_showMorning;
+              });
+            },
+          ),
         ],
       ),
       body: Column(
@@ -1528,18 +1602,67 @@ class _LogPageState extends State<LogPage> {
 
 
   Widget _buildLogList(PostureLogManager logManager) {
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: NeverScrollableScrollPhysics(),
-      itemCount: logManager.logs.length,
-      itemBuilder: (context, index) {
-        final log = logManager.logs[index];
-        return ListTile(
-          title: Text('${log.fromDirection} → ${log.toDirection}'),
-          subtitle: Text('유지 시간: ${formatDuration(log.duration)}'),
-          trailing: Text(DateFormat('HH:mm:ss').format(log.timestamp)),
-        );
-      },
+    // 로그를 오전/오후로 분류
+    final morningLogs = logManager.logs
+        .where((log) => log.timestamp.hour < 12)
+        .toList();
+    final afternoonLogs = logManager.logs
+        .where((log) => log.timestamp.hour >= 12)
+        .toList();
+
+    // 현재 선택된 시간대에 따라 표시할 로그 선택
+    final logsToShow = _showMorning ? morningLogs : afternoonLogs;
+
+    if (logsToShow.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Text(
+            _showMorning ? '오전 기록이 없습니다.' : '오후 기록이 없습니다.',
+            style: TextStyle(fontSize: 16),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.all(16),
+          child: Text(
+            _showMorning ? '오전 기록 (00:00 - 11:59)' : '오후 기록 (12:00 - 23:59)',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        ListView.builder(
+          shrinkWrap: true,
+          physics: NeverScrollableScrollPhysics(),
+          itemCount: logsToShow.length,
+          itemBuilder: (context, index) {
+            final log = logsToShow[index];
+            return Card(
+              margin: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: ListTile(
+                leading: Container(
+                  width: 4,
+                  height: 40,
+                  color: postureColors[log.fromDirection],
+                ),
+                title: Text('${log.fromDirection} → ${log.toDirection}'),
+                subtitle: Text('유지 시간: ${formatDuration(log.duration)}'),
+                trailing: Text(
+                  DateFormat('HH:mm:ss').format(log.timestamp),
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 
