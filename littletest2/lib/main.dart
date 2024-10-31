@@ -25,6 +25,8 @@ import 'auth/screens/login_page.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
+
+
 Future<void> sendLogToAPI(PostureLogEntry log) async {
   final url = 'https://eax80xae1d.execute-api.ap-northeast-2.amazonaws.com/proc/posturelogs';
   try {
@@ -76,11 +78,12 @@ class DatabaseHelper {
   Future<void> _createDB(Database db, int version) async {
     await db.execute('''
       CREATE TABLE posture_logs(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT,
         timestamp TEXT,
         fromDirection TEXT,
         toDirection TEXT,
-        duration INTEGER
+        duration INTEGER,
+        PRIMARY KEY(id, timestamp)
       )
     ''');
   }
@@ -93,7 +96,9 @@ class DatabaseHelper {
       'fromDirection': log.fromDirection,
       'toDirection': log.toDirection,
       'duration': log.duration.inSeconds,
-    });
+    },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<List<PostureLogEntry>> getLogsByDate(DateTime date) async {
@@ -144,11 +149,36 @@ class PostureLogManager extends ChangeNotifier {
   List<PostureLogEntry> _tempLogs = [];
   DateTime? _lastSyncTime;
   DateTime? get lastSyncTime => _lastSyncTime;
+
+  final AuthService _authService = AuthService();
+
+  Future<String> getCurrentUserEmail() async {
+    try {
+      // 현재 로그인된 사용자의 이메일 가져오기
+      final email = await _authService.getCurrentUserEmail();
+      return email ?? '';
+    } catch (e) {
+      print('Error getting user email: $e');
+      return '';
+    }
+  }
+
   //dyDB
   Future<void> addLog(PostureLogEntry entry) async {
-    await _dbHelper.insertLog(entry);
-    _logs.add(entry);
-    _tempLogs.add(entry);
+    final userEmail = await getCurrentUserEmail(); // 새로 추가
+    if (userEmail.isEmpty) {
+      throw Exception('User email not found');
+    }
+    final logWithEmail = PostureLogEntry(
+      id: userEmail, // 이메일을 ID로 사용
+      timestamp: entry.timestamp,
+      fromDirection: entry.fromDirection,
+      toDirection: entry.toDirection,
+      duration: entry.duration,
+    );
+    await _dbHelper.insertLog(logWithEmail);
+    _logs.add(logWithEmail);
+    _tempLogs.add(logWithEmail);
     notifyListeners();
   }
   // DB
@@ -462,9 +492,10 @@ class SettingsPage extends StatelessWidget {
   //   );
   // }
   void _showDataSyncDialog(BuildContext context, PostureLogManager logManager) {
+    if (!context.mounted) return;
     showDialog(
       context: context,
-      builder: (BuildContext context) {
+      builder: (BuildContext dialogContext) {
         return AlertDialog(
           title: Text('데이터 전송'),
           content: Text('자세 데이터를 서버에 전송하시겠습니까?'),
@@ -472,22 +503,26 @@ class SettingsPage extends StatelessWidget {
             TextButton(
               child: Text('취소'),
               onPressed: () {
-                Navigator.of(context).pop();
+                Navigator.of(dialogContext).pop();
               },
             ),
             TextButton(
               child: Text('전송'),
               onPressed: () async {
-                Navigator.of(context).pop();
+                Navigator.of(dialogContext).pop();
                 try {
                   await logManager.sendLogsToDynamoDB();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('데이터가 성공적으로 전송되었습니다')),
-                  );
+                  if (context.mounted) { // context 유효성 확인
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('데이터가 성공적으로 전송되었습니다')),
+                    );
+                  }
                 } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('데이터 전송 중 오류가 발생했습니다')),
-                  );
+                    if (context.mounted) { // context 유효성 확인
+                     ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('데이터 전송 중 오류가 발생했습니다')),
+                     );
+                    }
                 }
               },
             ),
